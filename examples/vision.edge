@@ -1,0 +1,5 @@
+frame img := load_image("image.jpg");
+img := resize(img, 640, 480);
+grayscale(img);
+blur(img, 5);
+save(img, "result.jpg");

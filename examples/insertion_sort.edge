@@ -1,0 +1,41 @@
+task is_greater(a, b) {
+    choose a > b { give 1; }
+    otherwise { give 0; }
+}
+
+make arr[5] := [8, 3, 7, 1, 5];
+
+repeat i from 1 until 5 {
+    make key := arr[i];
+    make j := i - 1;
+    
+    make cont := 1;
+    choose j >= 0 {
+        choose is_greater(arr[j], key) == 1 {
+            cont := 1;
+        } otherwise {
+            cont := 0;
+        }
+    } otherwise {
+        cont := 0;
+    }
+    
+    repeat while cont == 1 {
+        arr[j + 1] := arr[j];
+        j := j - 1;
+        choose j >= 0 {
+            choose is_greater(arr[j], key) == 1 {
+                cont := 1;
+            } otherwise {
+                cont := 0;
+            }
+        } otherwise {
+            cont := 0;
+        }
+    }
+    arr[j + 1] := key;
+}
+
+repeat i from 0 until 5 {
+    emit arr[i];
+}

@@ -1,0 +1,3 @@
+model detector := load_model("dummy.onnx");
+frame img := load_image("image.jpg");
+detections objects := detect(detector, img);

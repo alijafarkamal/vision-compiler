@@ -1,0 +1,15 @@
+make a := 5;
+choose a > 3 {
+    emit 1;
+} otherwise {
+    emit 0;
+}
+
+repeat while a > 0 {
+    emit a;
+    a := a - 1;
+}
+
+repeat i from 0 until 5 {
+    emit i;
+}

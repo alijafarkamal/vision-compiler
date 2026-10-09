@@ -1,0 +1,21 @@
+make x := 10;
+make numbers[5] := [8, 3, 7, 1, 5];
+
+task maximum(a, b) {
+    // This is a comment
+    choose a > b {
+        give a;
+    }
+    otherwise {
+        give b;
+    }
+}
+/* Multiline
+   comment */
+repeat i from 0 until 10 {
+    emit i;
+}
+
+repeat while x > 0 {
+    x := x - 1;
+}

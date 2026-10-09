@@ -1,0 +1,17 @@
+task add(a, b) {
+    give a + b;
+}
+
+task factorial(n) {
+    choose n <= 1 {
+        give 1;
+    } otherwise {
+        give n * factorial(n - 1);
+    }
+}
+
+make result := add(10, 5);
+emit result;
+
+make f := factorial(5);
+emit f;
