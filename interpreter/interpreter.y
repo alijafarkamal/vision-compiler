@@ -523,7 +523,7 @@ statement_list:
     ;
 
 block:
-    LBRACE statement_list RBRACE { $$ = $1; }
+    LBRACE statement_list RBRACE { $$ = $2; }
     | LBRACE RBRACE              { $$ = new std::vector<std::shared_ptr<Stmt>>(); }
     ;
 
