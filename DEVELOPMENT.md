@@ -84,3 +84,12 @@
 - test result: Verified AST-level dead code branch elimination alongside vision peephole optimizations removing consecutive redundant image resizes. Executable prints 20 correctly.
 
 All Milestones are COMPLETED. EdgeFlow compiler is ready!
+
+## Phase 1 - Interpreter (Flex + Bison only)
+- Phase completed
+- files changed: interpreter/interpreter.y, interpreter/lexer_interp.l, interpreter/main_interp.cpp, CMakeLists.txt, tests/run_phase1_tests.sh
+- description: Pure Flex + Bison interpreter. Grammar actions directly execute EdgeFlow programs using C++ maps/vectors inside the Bison .y file. No LLVM, no AST headers, no external libraries beyond C++ stdlib.
+- features: variables, arrays, if/else (choose/otherwise), while loop (repeat while), range loop (repeat i from x until y), functions with recursion (task/give), emit (print), built-in vision stubs
+- build: cmake --build build --target edgeflow-interp
+- run: ./build/edgeflow-interp examples/insertion_sort.edge
+- test result: All 5 tests pass — basic, control_flow, functions, arrays, insertion_sort
