@@ -2,456 +2,317 @@
 /*
  * EdgeFlow Interpreter — Phase 1
  * Pure Flex + Bison interpreter.
- * Grammar actions directly execute the program using C++ data structures.
  * No LLVM, no intermediate code generation.
  */
-
 #include <iostream>
-#include <string>
-#include <vector>
-#include <map>
-#include <memory>
-#include <stdexcept>
-#include <functional>
 #include <cstdlib>
 #include <cstring>
-#include <cassert>
-
 extern "C" int yylex();
 extern int yylineno;
 void yyerror(const char* s) {
     std::cerr << "Error (line " << yylineno << "): " << s << std::endl;
     exit(1);
 }
-
-/* =========================================================
- *  INTERPRETER STATE
- * ========================================================= */
-
-/* Return-value signalling via exception */
-struct ReturnSignal {
-    Value value;
-};
-
-/* A local environment: scalar vars + arrays */
-struct Env {
-    std::map<std::string, Value>                   vars;
-    std::map<std::string, std::vector<Value>>      arrays;
-    Env* parent = nullptr;
-};
-
-/* Function definitions */
-struct FuncDef {
-    std::vector<std::string>        params;
-    std::vector<StmtP>              body;
-};
-
-/* Global state */
-std::map<std::string, FuncDef> g_functions;
-Env g_env;
-
-/* =========================================================
- *  FORWARD DECLARATIONS
- * ========================================================= */
-Value evalExpr(const ExprP& e, Env& env);
-void  execStmt(const StmtP& s, Env& env);
-void  execBlock(const std::vector<StmtP>& stmts, Env& env);
-
-/* =========================================================
- *  BUILT-IN VISION FUNCTIONS (stubs — Phase 1 interpreter)
- * ========================================================= */
-Value callBuiltin(const std::string& name,
-                  const std::vector<Value>& argvals)
-{
-    if (name == "size") {
-        std::cerr << "[interp] built-in size() called with scalar arg" << std::endl;
-        return 0;
-    }
-    if (name == "load_image" || name == "resize" || name == "grayscale" ||
-        name == "blur"       || name == "save"   || name == "show"      ||
-        name == "open_camera"|| name == "camera_read" || name == "load_model" ||
-        name == "detect") {
-        std::cerr << "[interp] vision built-in '" << name
-                  << "' — stub (Phase 1 interpreter)" << std::endl;
-        return 0;
-    }
-    std::cerr << "Error: undefined function '" << name << "'" << std::endl;
-    exit(1);
-}
-
-/* Resolve variable: look in env, then global */
-Value& resolveVar(const std::string& name, Env& env) {
-    if (env.vars.count(name)) return env.vars[name];
-    if (&env != &g_env && g_env.vars.count(name)) return g_env.vars[name];
-    std::cerr << "Error: undefined variable '" << name << "'" << std::endl;
-    exit(1);
-}
-
-/* Resolve array */
-std::vector<Value>& resolveArray(const std::string& name, Env& env) {
-    if (env.arrays.count(name)) return env.arrays[name];
-    if (&env != &g_env && g_env.arrays.count(name)) return g_env.arrays[name];
-    std::cerr << "Error: undefined array '" << name << "'" << std::endl;
-    exit(1);
-}
-
-/* =========================================================
- *  EXPRESSION EVALUATOR
- * ========================================================= */
-Value evalExpr(const ExprP& e, Env& env) {
-    switch (e->kind) {
-
-    case EK::Num:
-        return e->num_val;
-
-    case EK::Str:
-        return 0;
-
-    case EK::Var: {
-        const std::string& n = e->str_val;
-        if (env.vars.count(n)) return env.vars[n];
-        if (&env != &g_env && g_env.vars.count(n)) return g_env.vars[n];
-        std::cerr << "Error: undefined variable '" << n << "'" << std::endl;
-        exit(1);
-    }
-
-    case EK::ArrayAccess: {
-        auto& arr = resolveArray(e->str_val, env);
-        Value idx = evalExpr(e->index_expr, env);
-        if (idx < 0 || idx >= (Value)arr.size()) {
-            std::cerr << "Error: array index " << idx << " out of bounds" << std::endl;
-            exit(1);
-        }
-        return arr[(size_t)idx];
-    }
-
-    case EK::BinOp: {
-        if (e->op == "and") {
-            Value l = evalExpr(e->lhs, env);
-            if (!l) return 0;
-            return evalExpr(e->rhs, env) ? 1 : 0;
-        }
-        if (e->op == "or") {
-            Value l = evalExpr(e->lhs, env);
-            if (l) return 1;
-            return evalExpr(e->rhs, env) ? 1 : 0;
-        }
-        Value l = evalExpr(e->lhs, env);
-        Value r = evalExpr(e->rhs, env);
-        if (e->op == "+")  return l + r;
-        if (e->op == "-")  return l - r;
-        if (e->op == "*")  return l * r;
-        if (e->op == "/") {
-            if (r == 0) { std::cerr << "Error: division by zero\n"; exit(1); }
-            return l / r;
-        }
-        if (e->op == "%") {
-            if (r == 0) { std::cerr << "Error: modulo by zero\n"; exit(1); }
-            return l % r;
-        }
-        if (e->op == "==") return (l == r) ? 1 : 0;
-        if (e->op == "!=") return (l != r) ? 1 : 0;
-        if (e->op == "<")  return (l <  r) ? 1 : 0;
-        if (e->op == "<=") return (l <= r) ? 1 : 0;
-        if (e->op == ">")  return (l >  r) ? 1 : 0;
-        if (e->op == ">=") return (l >= r) ? 1 : 0;
-        std::cerr << "Error: unknown binary operator '" << e->op << "'\n";
-        exit(1);
-    }
-
-    case EK::UnOp: {
-        Value v = evalExpr(e->lhs, env);
-        if (e->op == "-")   return -v;
-        if (e->op == "not") return v ? 0 : 1;
-        std::cerr << "Error: unknown unary operator '" << e->op << "'\n";
-        exit(1);
-    }
-
-    case EK::Call: {
-        const std::string& fname = e->str_val;
-
-        std::vector<Value> argvals;
-        for (auto& a : e->args)
-            argvals.push_back(evalExpr(a, env));
-
-        if (fname == "size") {
-            if (!e->args.empty() && e->args[0]->kind == EK::Var) {
-                const std::string& aname = e->args[0]->str_val;
-                if (env.arrays.count(aname))
-                    return (Value)env.arrays[aname].size();
-                if (g_env.arrays.count(aname))
-                    return (Value)g_env.arrays[aname].size();
-            }
-            return argvals.empty() ? 0 : argvals[0];
-        }
-
-        if (g_functions.count(fname)) {
-            FuncDef& fd = g_functions[fname];
-            if (argvals.size() != fd.params.size()) {
-                std::cerr << "Error: function '" << fname << "' expects "
-                          << fd.params.size() << " arguments, got "
-                          << argvals.size() << std::endl;
-                exit(1);
-            }
-            Env local;
-            for (size_t i = 0; i < fd.params.size(); ++i)
-                local.vars[fd.params[i]] = argvals[i];
-
-            try {
-                execBlock(fd.body, local);
-            } catch (ReturnSignal& rs) {
-                return rs.value;
-            }
-            return 0;
-        }
-
-        return callBuiltin(fname, argvals);
-    }
-    }
-    return 0;
-}
-
-/* =========================================================
- *  STATEMENT EXECUTOR
- * ========================================================= */
-void execBlock(const std::vector<StmtP>& stmts, Env& env) {
-    for (auto& s : stmts) execStmt(s, env);
-}
-
-void execStmt(const StmtP& s, Env& env) {
-    switch (s->kind) {
-
-    case SK::VarDecl: {
-        Value v = s->expr ? evalExpr(s->expr, env) : 0;
-        env.vars[s->name] = v;
-        break;
-    }
-
-    case SK::ArrayDecl: {
-        Value sz = s->arr_size ? evalExpr(s->arr_size, env) : (Value)s->init_exprs.size();
-        std::vector<Value> arr((size_t)sz, 0);
-        for (size_t i = 0; i < s->init_exprs.size() && i < (size_t)sz; ++i)
-            arr[i] = evalExpr(s->init_exprs[i], env);
-        env.arrays[s->name] = std::move(arr);
-        break;
-    }
-
-    case SK::Assign: {
-        Value v = evalExpr(s->expr, env);
-        if (env.vars.count(s->name)) {
-            env.vars[s->name] = v;
-        } else if (&env != &g_env && g_env.vars.count(s->name)) {
-            g_env.vars[s->name] = v;
-        } else {
-            env.vars[s->name] = v;
-        }
-        break;
-    }
-
-    case SK::ArrayAssign: {
-        Value idx = evalExpr(s->index_expr, env);
-        Value val = evalExpr(s->expr, env);
-        auto& arr = resolveArray(s->name, env);
-        if (idx < 0 || idx >= (Value)arr.size()) {
-            std::cerr << "Error: array index " << idx << " out of bounds\n";
-            exit(1);
-        }
-        arr[(size_t)idx] = val;
-        break;
-    }
-
-    case SK::If: {
-        Value cond = evalExpr(s->expr, env);
-        if (cond) {
-            execBlock(s->body, env);
-        } else if (!s->else_body.empty()) {
-            execBlock(s->else_body, env);
-        }
-        break;
-    }
-
-    case SK::While: {
-        while (evalExpr(s->expr, env)) {
-            execBlock(s->body, env);
-        }
-        break;
-    }
-
-    case SK::RangeFor: {
-        Value from_val  = evalExpr(s->start_e, env);
-        Value until_val = evalExpr(s->end_e,   env);
-        for (Value i = from_val; i < until_val; ++i) {
-            env.vars[s->name] = i;
-            execBlock(s->body, env);
-        }
-        env.vars.erase(s->name);
-        break;
-    }
-
-    case SK::Return: {
-        Value v = s->expr ? evalExpr(s->expr, env) : 0;
-        throw ReturnSignal{v};
-    }
-
-    case SK::Emit: {
-        Value v = evalExpr(s->expr, env);
-        std::cout << v << std::endl;
-        break;
-    }
-
-    case SK::FuncDecl: {
-        FuncDef fd;
-        fd.params = s->params;
-        fd.body   = s->body;
-        g_functions[s->name] = std::move(fd);
-        break;
-    }
-
-    case SK::ExprStmt: {
-        evalExpr(s->expr, env);
-        break;
-    }
-    }
-}
-
-/* =========================================================
- *  HELPER BUILDERS
- * ========================================================= */
-ExprP makeNum(long long v) {
-    auto e = std::make_shared<Expr>(); e->kind = EK::Num; e->num_val = v; return e;
-}
-ExprP makeStr(const std::string& s) {
-    auto e = std::make_shared<Expr>(); e->kind = EK::Str; e->str_val = s; return e;
-}
-ExprP makeVar(const std::string& n) {
-    auto e = std::make_shared<Expr>(); e->kind = EK::Var; e->str_val = n; return e;
-}
-ExprP makeArrAccess(const std::string& n, ExprP idx) {
-    auto e = std::make_shared<Expr>(); e->kind = EK::ArrayAccess;
-    e->str_val = n; e->index_expr = std::move(idx); return e;
-}
-ExprP makeBin(const std::string& op, ExprP l, ExprP r) {
-    auto e = std::make_shared<Expr>(); e->kind = EK::BinOp;
-    e->op = op; e->lhs = std::move(l); e->rhs = std::move(r); return e;
-}
-ExprP makeUnary(const std::string& op, ExprP operand) {
-    auto e = std::make_shared<Expr>(); e->kind = EK::UnOp;
-    e->op = op; e->lhs = std::move(operand); return e;
-}
-ExprP makeCall(const std::string& name, std::vector<ExprP> args) {
-    auto e = std::make_shared<Expr>(); e->kind = EK::Call;
-    e->str_val = name; e->args = std::move(args); return e;
-}
-
-StmtP makeVarDecl(const std::string& name, ExprP init) {
-    auto s = std::make_shared<Stmt>(); s->kind = SK::VarDecl;
-    s->name = name; s->expr = std::move(init); return s;
-}
-StmtP makeArrDecl(const std::string& name, ExprP sz, std::vector<ExprP> inits) {
-    auto s = std::make_shared<Stmt>(); s->kind = SK::ArrayDecl;
-    s->name = name; s->arr_size = std::move(sz); s->init_exprs = std::move(inits); return s;
-}
-StmtP makeAssign(const std::string& name, ExprP val) {
-    auto s = std::make_shared<Stmt>(); s->kind = SK::Assign;
-    s->name = name; s->expr = std::move(val); return s;
-}
-StmtP makeArrAssign(const std::string& name, ExprP idx, ExprP val) {
-    auto s = std::make_shared<Stmt>(); s->kind = SK::ArrayAssign;
-    s->name = name; s->index_expr = std::move(idx); s->expr = std::move(val); return s;
-}
-StmtP makeIf(ExprP cond, std::vector<StmtP> then_b, std::vector<StmtP> else_b) {
-    auto s = std::make_shared<Stmt>(); s->kind = SK::If;
-    s->expr = std::move(cond); s->body = std::move(then_b); s->else_body = std::move(else_b);
-    return s;
-}
-StmtP makeWhile(ExprP cond, std::vector<StmtP> body) {
-    auto s = std::make_shared<Stmt>(); s->kind = SK::While;
-    s->expr = std::move(cond); s->body = std::move(body); return s;
-}
-StmtP makeRangeFor(const std::string& var, ExprP from, ExprP to, std::vector<StmtP> body) {
-    auto s = std::make_shared<Stmt>(); s->kind = SK::RangeFor;
-    s->name = var; s->start_e = std::move(from); s->end_e = std::move(to);
-    s->body = std::move(body); return s;
-}
-StmtP makeReturn(ExprP val) {
-    auto s = std::make_shared<Stmt>(); s->kind = SK::Return;
-    s->expr = std::move(val); return s;
-}
-StmtP makeEmit(ExprP val) {
-    auto s = std::make_shared<Stmt>(); s->kind = SK::Emit;
-    s->expr = std::move(val); return s;
-}
-StmtP makeFuncDecl(const std::string& name, std::vector<std::string> params, std::vector<StmtP> body) {
-    auto s = std::make_shared<Stmt>(); s->kind = SK::FuncDecl;
-    s->name = name; s->params = std::move(params); s->body = std::move(body); return s;
-}
-StmtP makeExprStmt(ExprP e) {
-    auto s = std::make_shared<Stmt>(); s->kind = SK::ExprStmt;
-    s->expr = std::move(e); return s;
-}
-
 %}
 
 /* =========================================================
- *  %code requires — goes into BOTH interp.tab.cpp AND interp.tab.hpp
- *  so the Flex lexer can see these types when it #includes interp.tab.hpp
+ * %code requires — copied into BOTH interp.tab.hpp AND
+ * interp.tab.cpp (before the prologue in the header).
+ * Put only TYPE DEFINITIONS here so the Flex lexer can see
+ * them when it #includes interp.tab.hpp.
  * ========================================================= */
 %code requires {
-    #include <vector>
     #include <string>
+    #include <vector>
     #include <memory>
+    #include <map>
 
-    /* A runtime value — all scalars are 64-bit integers */
+    /* Runtime scalar type */
     using Value = long long;
 
-    /* ---- Expr kinds ---- */
-    enum class EK {
-        Num, Str, Var, ArrayAccess,
-        BinOp, UnOp, Call
-    };
+    /* ---- Expression node kinds ---- */
+    enum class EK { Num, Str, Var, ArrayAccess, BinOp, UnOp, Call };
 
     struct Expr {
-        EK kind;
-        Value          num_val   = 0;
-        std::string    str_val;
-        std::string    op;
+        EK          kind;
+        Value       num_val = 0;
+        std::string str_val;
+        std::string op;
         std::shared_ptr<Expr> lhs, rhs, index_expr;
         std::vector<std::shared_ptr<Expr>> args;
     };
-
     using ExprP = std::shared_ptr<Expr>;
 
-    /* ---- Stmt kinds ---- */
+    /* ---- Statement node kinds ---- */
     enum class SK {
         VarDecl, ArrayDecl, Assign, ArrayAssign,
-        If, While, RangeFor,
-        Return, Emit, FuncDecl, ExprStmt
+        If, While, RangeFor, Return, Emit, FuncDecl, ExprStmt
     };
 
     struct Stmt {
-        SK kind;
+        SK          kind;
         std::string name;
         std::shared_ptr<Expr>  expr;
         std::shared_ptr<Expr>  start_e, end_e;
         std::shared_ptr<Expr>  index_expr;
         std::vector<std::shared_ptr<Stmt>> body;
         std::vector<std::shared_ptr<Stmt>> else_body;
-        std::vector<std::string> params;
+        std::vector<std::string>           params;
         std::vector<std::shared_ptr<Expr>> init_exprs;
         std::shared_ptr<Expr>  arr_size;
     };
-
     using StmtP = std::shared_ptr<Stmt>;
 }
 
 /* =========================================================
- *  BISON DECLARATIONS
+ * %code — placed AFTER the union/type definitions in the
+ * generated interp.tab.cpp, so Value/Expr/Stmt ARE visible.
+ * Put all interpreter implementation here.
  * ========================================================= */
+%code {
+    #include <stdexcept>
+    #include <functional>
+    #include <cassert>
 
+    /* ---- Return-value signalling ---- */
+    struct ReturnSignal { Value value; };
+
+    /* ---- Runtime environment ---- */
+    struct Env {
+        std::map<std::string, Value>              vars;
+        std::map<std::string, std::vector<Value>> arrays;
+    };
+
+    struct FuncDef {
+        std::vector<std::string> params;
+        std::vector<StmtP>       body;
+    };
+
+    std::map<std::string, FuncDef> g_functions;
+    Env g_env;
+
+    /* ---- Forward declarations ---- */
+    Value evalExpr(const ExprP& e, Env& env);
+    void  execStmt(const StmtP& s, Env& env);
+    void  execBlock(const std::vector<StmtP>& stmts, Env& env);
+
+    /* ---- Array/variable resolution ---- */
+    Value& resolveVar(const std::string& name, Env& env) {
+        if (env.vars.count(name))   return env.vars[name];
+        if (g_env.vars.count(name)) return g_env.vars[name];
+        std::cerr << "Error: undefined variable '" << name << "'\n"; exit(1);
+    }
+    std::vector<Value>& resolveArray(const std::string& name, Env& env) {
+        if (env.arrays.count(name))   return env.arrays[name];
+        if (g_env.arrays.count(name)) return g_env.arrays[name];
+        std::cerr << "Error: undefined array '" << name << "'\n"; exit(1);
+    }
+
+    /* ---- Built-in vision stubs ---- */
+    Value callBuiltin(const std::string& name, const std::vector<Value>&) {
+        static const char* vision[] = {
+            "load_image","resize","grayscale","blur","save","show",
+            "open_camera","camera_read","load_model","detect", nullptr
+        };
+        for (int i = 0; vision[i]; ++i)
+            if (name == vision[i]) {
+                std::cerr << "[interp] vision stub: " << name << "\n";
+                return 0;
+            }
+        std::cerr << "Error: undefined function '" << name << "'\n"; exit(1);
+    }
+
+    /* ---- Expression evaluator ---- */
+    Value evalExpr(const ExprP& e, Env& env) {
+        switch (e->kind) {
+        case EK::Num: return e->num_val;
+        case EK::Str: return 0;
+        case EK::Var: {
+            const std::string& n = e->str_val;
+            if (env.vars.count(n))   return env.vars[n];
+            if (g_env.vars.count(n)) return g_env.vars[n];
+            std::cerr << "Error: undefined variable '" << n << "'\n"; exit(1);
+        }
+        case EK::ArrayAccess: {
+            auto& arr = resolveArray(e->str_val, env);
+            Value idx = evalExpr(e->index_expr, env);
+            if (idx < 0 || idx >= (Value)arr.size()) {
+                std::cerr << "Error: index " << idx << " out of bounds\n"; exit(1);
+            }
+            return arr[(size_t)idx];
+        }
+        case EK::BinOp: {
+            if (e->op == "and") { Value l=evalExpr(e->lhs,env); return l ? (evalExpr(e->rhs,env)?1:0) : 0; }
+            if (e->op == "or")  { Value l=evalExpr(e->lhs,env); return l ? 1 : (evalExpr(e->rhs,env)?1:0); }
+            Value l=evalExpr(e->lhs,env), r=evalExpr(e->rhs,env);
+            if (e->op=="+")  return l+r;
+            if (e->op=="-")  return l-r;
+            if (e->op=="*")  return l*r;
+            if (e->op=="/")  { if(!r){std::cerr<<"div by zero\n";exit(1);} return l/r; }
+            if (e->op=="%")  { if(!r){std::cerr<<"mod by zero\n";exit(1);} return l%r; }
+            if (e->op=="==") return l==r?1:0;
+            if (e->op=="!=") return l!=r?1:0;
+            if (e->op=="<")  return l<r?1:0;
+            if (e->op=="<=") return l<=r?1:0;
+            if (e->op==">")  return l>r?1:0;
+            if (e->op==">=") return l>=r?1:0;
+            std::cerr<<"unknown op '"<<e->op<<"'\n"; exit(1);
+        }
+        case EK::UnOp: {
+            Value v=evalExpr(e->lhs,env);
+            if (e->op=="-")   return -v;
+            if (e->op=="not") return v?0:1;
+            std::cerr<<"unknown unary op\n"; exit(1);
+        }
+        case EK::Call: {
+            const std::string& fn = e->str_val;
+            std::vector<Value> av;
+            for (auto& a : e->args) av.push_back(evalExpr(a, env));
+
+            if (fn == "size") {
+                if (!e->args.empty() && e->args[0]->kind == EK::Var) {
+                    const std::string& an = e->args[0]->str_val;
+                    if (env.arrays.count(an))   return (Value)env.arrays[an].size();
+                    if (g_env.arrays.count(an)) return (Value)g_env.arrays[an].size();
+                }
+                return av.empty() ? 0 : av[0];
+            }
+            if (g_functions.count(fn)) {
+                FuncDef& fd = g_functions[fn];
+                if (av.size() != fd.params.size()) {
+                    std::cerr<<"Error: "<<fn<<" expects "<<fd.params.size()<<" args, got "<<av.size()<<"\n"; exit(1);
+                }
+                Env local;
+                for (size_t i=0;i<fd.params.size();++i) local.vars[fd.params[i]]=av[i];
+                try { execBlock(fd.body, local); } catch (ReturnSignal& rs) { return rs.value; }
+                return 0;
+            }
+            return callBuiltin(fn, av);
+        }
+        }
+        return 0;
+    }
+
+    /* ---- Statement executor ---- */
+    void execBlock(const std::vector<StmtP>& stmts, Env& env) {
+        for (auto& s : stmts) execStmt(s, env);
+    }
+
+    void execStmt(const StmtP& s, Env& env) {
+        switch (s->kind) {
+        case SK::VarDecl:
+            env.vars[s->name] = s->expr ? evalExpr(s->expr,env) : 0;
+            break;
+        case SK::ArrayDecl: {
+            Value sz = s->arr_size ? evalExpr(s->arr_size,env) : (Value)s->init_exprs.size();
+            std::vector<Value> arr((size_t)sz, 0);
+            for (size_t i=0;i<s->init_exprs.size()&&i<(size_t)sz;++i)
+                arr[i]=evalExpr(s->init_exprs[i],env);
+            env.arrays[s->name]=std::move(arr);
+            break;
+        }
+        case SK::Assign: {
+            Value v = evalExpr(s->expr,env);
+            if (env.vars.count(s->name))   env.vars[s->name]=v;
+            else if (g_env.vars.count(s->name)) g_env.vars[s->name]=v;
+            else env.vars[s->name]=v;
+            break;
+        }
+        case SK::ArrayAssign: {
+            Value idx=evalExpr(s->index_expr,env), val=evalExpr(s->expr,env);
+            auto& arr=resolveArray(s->name,env);
+            if (idx<0||idx>=(Value)arr.size()){std::cerr<<"index out of bounds\n";exit(1);}
+            arr[(size_t)idx]=val;
+            break;
+        }
+        case SK::If:
+            if (evalExpr(s->expr,env)) execBlock(s->body,env);
+            else if (!s->else_body.empty()) execBlock(s->else_body,env);
+            break;
+        case SK::While:
+            while (evalExpr(s->expr,env)) execBlock(s->body,env);
+            break;
+        case SK::RangeFor: {
+            Value from=evalExpr(s->start_e,env), to=evalExpr(s->end_e,env);
+            for (Value i=from;i<to;++i) { env.vars[s->name]=i; execBlock(s->body,env); }
+            env.vars.erase(s->name);
+            break;
+        }
+        case SK::Return:
+            throw ReturnSignal{s->expr ? evalExpr(s->expr,env) : 0};
+        case SK::Emit:
+            std::cout << evalExpr(s->expr,env) << "\n";
+            break;
+        case SK::FuncDecl: {
+            FuncDef fd; fd.params=s->params; fd.body=s->body;
+            g_functions[s->name]=std::move(fd);
+            break;
+        }
+        case SK::ExprStmt:
+            evalExpr(s->expr,env);
+            break;
+        }
+    }
+
+    /* ---- Node builder helpers ---- */
+    ExprP mkNum(Value v)       { auto e=std::make_shared<Expr>(); e->kind=EK::Num; e->num_val=v; return e; }
+    ExprP mkStr(const char* s) { auto e=std::make_shared<Expr>(); e->kind=EK::Str; e->str_val=s; return e; }
+    ExprP mkVar(const char* n) { auto e=std::make_shared<Expr>(); e->kind=EK::Var; e->str_val=n; return e; }
+    ExprP mkAcc(const char* n, ExprP idx) {
+        auto e=std::make_shared<Expr>(); e->kind=EK::ArrayAccess; e->str_val=n; e->index_expr=idx; return e;
+    }
+    ExprP mkBin(const char* op, ExprP l, ExprP r) {
+        auto e=std::make_shared<Expr>(); e->kind=EK::BinOp; e->op=op; e->lhs=l; e->rhs=r; return e;
+    }
+    ExprP mkUn(const char* op, ExprP x) {
+        auto e=std::make_shared<Expr>(); e->kind=EK::UnOp; e->op=op; e->lhs=x; return e;
+    }
+    ExprP mkCall(const char* n, std::vector<ExprP> av) {
+        auto e=std::make_shared<Expr>(); e->kind=EK::Call; e->str_val=n; e->args=std::move(av); return e;
+    }
+
+    StmtP mkVarDecl(const char* n, ExprP init) {
+        auto s=std::make_shared<Stmt>(); s->kind=SK::VarDecl; s->name=n; s->expr=init; return s;
+    }
+    StmtP mkArrDecl(const char* n, ExprP sz, std::vector<ExprP> elems) {
+        auto s=std::make_shared<Stmt>(); s->kind=SK::ArrayDecl; s->name=n; s->arr_size=sz; s->init_exprs=std::move(elems); return s;
+    }
+    StmtP mkAssign(const char* n, ExprP v) {
+        auto s=std::make_shared<Stmt>(); s->kind=SK::Assign; s->name=n; s->expr=v; return s;
+    }
+    StmtP mkArrAssign(const char* n, ExprP idx, ExprP v) {
+        auto s=std::make_shared<Stmt>(); s->kind=SK::ArrayAssign; s->name=n; s->index_expr=idx; s->expr=v; return s;
+    }
+    StmtP mkIf(ExprP c, std::vector<StmtP> th, std::vector<StmtP> el) {
+        auto s=std::make_shared<Stmt>(); s->kind=SK::If; s->expr=c; s->body=std::move(th); s->else_body=std::move(el); return s;
+    }
+    StmtP mkWhile(ExprP c, std::vector<StmtP> b) {
+        auto s=std::make_shared<Stmt>(); s->kind=SK::While; s->expr=c; s->body=std::move(b); return s;
+    }
+    StmtP mkFor(const char* v, ExprP from, ExprP to, std::vector<StmtP> b) {
+        auto s=std::make_shared<Stmt>(); s->kind=SK::RangeFor; s->name=v; s->start_e=from; s->end_e=to; s->body=std::move(b); return s;
+    }
+    StmtP mkReturn(ExprP v) {
+        auto s=std::make_shared<Stmt>(); s->kind=SK::Return; s->expr=v; return s;
+    }
+    StmtP mkEmit(ExprP v) {
+        auto s=std::make_shared<Stmt>(); s->kind=SK::Emit; s->expr=v; return s;
+    }
+    StmtP mkFuncDecl(const char* n, std::vector<std::string> p, std::vector<StmtP> b) {
+        auto s=std::make_shared<Stmt>(); s->kind=SK::FuncDecl; s->name=n; s->params=std::move(p); s->body=std::move(b); return s;
+    }
+    StmtP mkExprStmt(ExprP e) {
+        auto s=std::make_shared<Stmt>(); s->kind=SK::ExprStmt; s->expr=e; return s;
+    }
+}
+
+/* =========================================================
+ * BISON TOKEN & TYPE DECLARATIONS
+ * ========================================================= */
 %union {
     long long                            num;
     char*                                str;
-    std::shared_ptr<Expr>*               expr;   /* heap-allocated shared_ptr */
+    std::shared_ptr<Expr>*               expr;
     std::shared_ptr<Stmt>*               stmt;
     std::vector<std::shared_ptr<Stmt>>*  stmts;
     std::vector<std::shared_ptr<Expr>>*  exprs;
@@ -465,7 +326,8 @@ StmtP makeExprStmt(ExprP e) {
 %token LPAREN RPAREN LBRACKET RBRACKET LBRACE RBRACE SEMICOLON COMMA
 
 %type <expr>   expr func_call_expr
-%type <stmt>   statement var_decl array_decl assignment if_stmt while_stmt range_loop return_stmt emit_stmt func_decl func_call_stmt
+%type <stmt>   statement var_decl array_decl assignment if_stmt while_stmt
+%type <stmt>   range_loop return_stmt emit_stmt func_decl func_call_stmt
 %type <stmts>  statement_list block
 %type <exprs>  expr_list expr_list_opt
 %type <params> param_list param_list_opt
@@ -478,17 +340,15 @@ StmtP makeExprStmt(ExprP e) {
 %right NOT UMINUS
 
 %start program
-
 %%
 
 /* =========================================================
- *  GRAMMAR RULES WITH DIRECT INTERPRETER ACTIONS
+ * GRAMMAR
  * ========================================================= */
 
 program:
     statement_list {
-        for (auto& s : *$1)
-            execStmt(s, g_env);
+        for (auto& s : *$1) execStmt(s, g_env);
         delete $1;
     }
     | /* empty */
@@ -496,136 +356,113 @@ program:
 
 statement_list:
     statement {
-        $$ = new std::vector<std::shared_ptr<Stmt>>();
-        if ($1) $$->push_back(*$1), delete $1;
+        $$ = new std::vector<StmtP>();
+        if ($1) { $$->push_back(*$1); delete $1; }
     }
     | statement_list statement {
         $$ = $1;
-        if ($2) $$->push_back(*$2), delete $2;
+        if ($2) { $$->push_back(*$2); delete $2; }
     }
     ;
 
 block:
     LBRACE statement_list RBRACE { $$ = $2; }
-    | LBRACE RBRACE              { $$ = new std::vector<std::shared_ptr<Stmt>>(); }
+    | LBRACE RBRACE              { $$ = new std::vector<StmtP>(); }
     ;
 
 statement:
-    var_decl      SEMICOLON { $$ = $1; }
-    | array_decl  SEMICOLON { $$ = $1; }
-    | assignment  SEMICOLON { $$ = $1; }
-    | if_stmt               { $$ = $1; }
-    | while_stmt            { $$ = $1; }
-    | range_loop            { $$ = $1; }
-    | return_stmt SEMICOLON { $$ = $1; }
-    | emit_stmt   SEMICOLON { $$ = $1; }
-    | func_decl             { $$ = $1; }
+    var_decl         SEMICOLON { $$ = $1; }
+    | array_decl     SEMICOLON { $$ = $1; }
+    | assignment     SEMICOLON { $$ = $1; }
+    | if_stmt                  { $$ = $1; }
+    | while_stmt               { $$ = $1; }
+    | range_loop               { $$ = $1; }
+    | return_stmt    SEMICOLON { $$ = $1; }
+    | emit_stmt      SEMICOLON { $$ = $1; }
+    | func_decl                { $$ = $1; }
     | func_call_stmt SEMICOLON { $$ = $1; }
     ;
 
-/* ---- Variable declaration: make x := expr ---- */
 var_decl:
     MAKE IDENTIFIER ASSIGN expr {
-        auto s = makeVarDecl($2, *$4);
+        $$ = new StmtP(mkVarDecl($2, *$4));
         free($2); delete $4;
-        $$ = new std::shared_ptr<Stmt>(s);
     }
     ;
 
-/* ---- Array declaration: make arr[n] := [e1, e2, ...] ---- */
 array_decl:
     MAKE IDENTIFIER LBRACKET expr RBRACKET ASSIGN LBRACKET expr_list_opt RBRACKET {
-        auto s = makeArrDecl($2, *$4, std::move(*$8));
+        $$ = new StmtP(mkArrDecl($2, *$4, std::move(*$8)));
         free($2); delete $4; delete $8;
-        $$ = new std::shared_ptr<Stmt>(s);
     }
     ;
 
-/* ---- Assignment: x := expr  OR  x[idx] := expr ---- */
 assignment:
     IDENTIFIER ASSIGN expr {
-        auto s = makeAssign($1, *$3);
+        $$ = new StmtP(mkAssign($1, *$3));
         free($1); delete $3;
-        $$ = new std::shared_ptr<Stmt>(s);
     }
     | IDENTIFIER LBRACKET expr RBRACKET ASSIGN expr {
-        auto s = makeArrAssign($1, *$3, *$6);
+        $$ = new StmtP(mkArrAssign($1, *$3, *$6));
         free($1); delete $3; delete $6;
-        $$ = new std::shared_ptr<Stmt>(s);
     }
     ;
 
-/* ---- If/else: choose cond { } otherwise { } ---- */
 if_stmt:
     CHOOSE expr block {
-        auto s = makeIf(*$2, *$3, {});
+        $$ = new StmtP(mkIf(*$2, *$3, {}));
         delete $2; delete $3;
-        $$ = new std::shared_ptr<Stmt>(s);
     }
     | CHOOSE expr block OTHERWISE block {
-        auto s = makeIf(*$2, *$3, *$5);
+        $$ = new StmtP(mkIf(*$2, *$3, *$5));
         delete $2; delete $3; delete $5;
-        $$ = new std::shared_ptr<Stmt>(s);
     }
     ;
 
-/* ---- While loop: repeat while cond { } ---- */
 while_stmt:
     REPEAT WHILE expr block {
-        auto s = makeWhile(*$3, *$4);
+        $$ = new StmtP(mkWhile(*$3, *$4));
         delete $3; delete $4;
-        $$ = new std::shared_ptr<Stmt>(s);
     }
     ;
 
-/* ---- Range loop: repeat i from start until end { } ---- */
 range_loop:
     REPEAT IDENTIFIER FROM expr UNTIL expr block {
-        auto s = makeRangeFor($2, *$4, *$6, *$7);
+        $$ = new StmtP(mkFor($2, *$4, *$6, *$7));
         free($2); delete $4; delete $6; delete $7;
-        $$ = new std::shared_ptr<Stmt>(s);
     }
     ;
 
-/* ---- Return: give expr ---- */
 return_stmt:
     GIVE expr {
-        auto s = makeReturn(*$2);
+        $$ = new StmtP(mkReturn(*$2));
         delete $2;
-        $$ = new std::shared_ptr<Stmt>(s);
     }
     ;
 
-/* ---- Emit (print): emit expr ---- */
 emit_stmt:
     EMIT expr {
-        auto s = makeEmit(*$2);
+        $$ = new StmtP(mkEmit(*$2));
         delete $2;
-        $$ = new std::shared_ptr<Stmt>(s);
     }
     ;
 
-/* ---- Function declaration: task name(params) { body } ---- */
 func_decl:
     TASK IDENTIFIER LPAREN param_list_opt RPAREN block {
-        auto s = makeFuncDecl($2, *$4, *$6);
+        $$ = new StmtP(mkFuncDecl($2, *$4, *$6));
         free($2); delete $4; delete $6;
-        $$ = new std::shared_ptr<Stmt>(s);
     }
     ;
 
-/* ---- Standalone function call as statement: foo(args); ---- */
 func_call_stmt:
     IDENTIFIER LPAREN expr_list_opt RPAREN {
-        auto call_e = makeCall($1, std::move(*$3));
+        $$ = new StmtP(mkExprStmt(mkCall($1, std::move(*$3))));
         free($1); delete $3;
-        $$ = new std::shared_ptr<Stmt>(makeExprStmt(call_e));
     }
     ;
 
-/* ---- Parameter lists ---- */
 param_list_opt:
-    param_list   { $$ = $1; }
+    param_list    { $$ = $1; }
     | /* empty */ { $$ = new std::vector<std::string>(); }
     ;
 
@@ -639,15 +476,14 @@ param_list:
     }
     ;
 
-/* ---- Expression argument lists ---- */
 expr_list_opt:
-    expr_list   { $$ = $1; }
-    | /* empty */ { $$ = new std::vector<std::shared_ptr<Expr>>(); }
+    expr_list     { $$ = $1; }
+    | /* empty */ { $$ = new std::vector<ExprP>(); }
     ;
 
 expr_list:
     expr {
-        $$ = new std::vector<std::shared_ptr<Expr>>();
+        $$ = new std::vector<ExprP>();
         $$->push_back(*$1); delete $1;
     }
     | expr_list COMMA expr {
@@ -655,48 +491,37 @@ expr_list:
     }
     ;
 
-/* ---- Expressions ---- */
 func_call_expr:
     IDENTIFIER LPAREN expr_list_opt RPAREN {
-        auto e = makeCall($1, std::move(*$3));
+        $$ = new ExprP(mkCall($1, std::move(*$3)));
         free($1); delete $3;
-        $$ = new std::shared_ptr<Expr>(e);
     }
     ;
 
 expr:
-    INTEGER_LITERAL {
-        $$ = new std::shared_ptr<Expr>(makeNum($1));
-    }
-    | STRING_LITERAL {
-        auto e = makeStr($1); free($1);
-        $$ = new std::shared_ptr<Expr>(e);
-    }
-    | IDENTIFIER {
-        $$ = new std::shared_ptr<Expr>(makeVar($1)); free($1);
-    }
+    INTEGER_LITERAL              { $$ = new ExprP(mkNum($1)); }
+    | STRING_LITERAL             { $$ = new ExprP(mkStr($1)); free($1); }
+    | IDENTIFIER                 { $$ = new ExprP(mkVar($1)); free($1); }
     | IDENTIFIER LBRACKET expr RBRACKET {
-        auto e = makeArrAccess($1, *$3);
-        free($1); delete $3;
-        $$ = new std::shared_ptr<Expr>(e);
+        $$ = new ExprP(mkAcc($1, *$3)); free($1); delete $3;
     }
-    | func_call_expr { $$ = $1; }
-    | LPAREN expr RPAREN { $$ = $2; }
-    | expr PLUS  expr { $$ = new std::shared_ptr<Expr>(makeBin("+",  *$1, *$3)); delete $1; delete $3; }
-    | expr MINUS expr { $$ = new std::shared_ptr<Expr>(makeBin("-",  *$1, *$3)); delete $1; delete $3; }
-    | expr STAR  expr { $$ = new std::shared_ptr<Expr>(makeBin("*",  *$1, *$3)); delete $1; delete $3; }
-    | expr SLASH expr { $$ = new std::shared_ptr<Expr>(makeBin("/",  *$1, *$3)); delete $1; delete $3; }
-    | expr MOD   expr { $$ = new std::shared_ptr<Expr>(makeBin("%",  *$1, *$3)); delete $1; delete $3; }
-    | expr EQUALS  expr { $$ = new std::shared_ptr<Expr>(makeBin("==", *$1, *$3)); delete $1; delete $3; }
-    | expr NEQ     expr { $$ = new std::shared_ptr<Expr>(makeBin("!=", *$1, *$3)); delete $1; delete $3; }
-    | expr LESS    expr { $$ = new std::shared_ptr<Expr>(makeBin("<",  *$1, *$3)); delete $1; delete $3; }
-    | expr LEQ     expr { $$ = new std::shared_ptr<Expr>(makeBin("<=", *$1, *$3)); delete $1; delete $3; }
-    | expr GREATER expr { $$ = new std::shared_ptr<Expr>(makeBin(">",  *$1, *$3)); delete $1; delete $3; }
-    | expr GEQ     expr { $$ = new std::shared_ptr<Expr>(makeBin(">=", *$1, *$3)); delete $1; delete $3; }
-    | expr AND     expr { $$ = new std::shared_ptr<Expr>(makeBin("and", *$1, *$3)); delete $1; delete $3; }
-    | expr OR      expr { $$ = new std::shared_ptr<Expr>(makeBin("or",  *$1, *$3)); delete $1; delete $3; }
-    | NOT expr          { $$ = new std::shared_ptr<Expr>(makeUnary("not", *$2)); delete $2; }
-    | MINUS expr %prec UMINUS { $$ = new std::shared_ptr<Expr>(makeUnary("-", *$2)); delete $2; }
+    | func_call_expr             { $$ = $1; }
+    | LPAREN expr RPAREN         { $$ = $2; }
+    | expr PLUS   expr  { $$ = new ExprP(mkBin("+",  *$1,*$3)); delete $1; delete $3; }
+    | expr MINUS  expr  { $$ = new ExprP(mkBin("-",  *$1,*$3)); delete $1; delete $3; }
+    | expr STAR   expr  { $$ = new ExprP(mkBin("*",  *$1,*$3)); delete $1; delete $3; }
+    | expr SLASH  expr  { $$ = new ExprP(mkBin("/",  *$1,*$3)); delete $1; delete $3; }
+    | expr MOD    expr  { $$ = new ExprP(mkBin("%",  *$1,*$3)); delete $1; delete $3; }
+    | expr EQUALS  expr { $$ = new ExprP(mkBin("==", *$1,*$3)); delete $1; delete $3; }
+    | expr NEQ     expr { $$ = new ExprP(mkBin("!=", *$1,*$3)); delete $1; delete $3; }
+    | expr LESS    expr { $$ = new ExprP(mkBin("<",  *$1,*$3)); delete $1; delete $3; }
+    | expr LEQ     expr { $$ = new ExprP(mkBin("<=", *$1,*$3)); delete $1; delete $3; }
+    | expr GREATER expr { $$ = new ExprP(mkBin(">",  *$1,*$3)); delete $1; delete $3; }
+    | expr GEQ     expr { $$ = new ExprP(mkBin(">=", *$1,*$3)); delete $1; delete $3; }
+    | expr AND     expr { $$ = new ExprP(mkBin("and",*$1,*$3)); delete $1; delete $3; }
+    | expr OR      expr { $$ = new ExprP(mkBin("or", *$1,*$3)); delete $1; delete $3; }
+    | NOT   expr        { $$ = new ExprP(mkUn("not", *$2)); delete $2; }
+    | MINUS expr %prec UMINUS { $$ = new ExprP(mkUn("-", *$2)); delete $2; }
     ;
 
 %%
