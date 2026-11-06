@@ -25,53 +25,6 @@ void yyerror(const char* s) {
 }
 
 /* =========================================================
- *  SELF-CONTAINED VALUE / EXPRESSION / STATEMENT TYPES
- *  Everything is defined right here in the .y file.
- * ========================================================= */
-
-/* A runtime value — all scalars are 64-bit integers */
-using Value = long long;
-
-/* ---- Expr kinds ---- */
-enum class EK {
-    Num, Str, Var, ArrayAccess,
-    BinOp, UnOp, Call
-};
-
-struct Expr {
-    EK kind;
-    Value          num_val   = 0;
-    std::string    str_val;          // variable name, op string, or string literal
-    std::string    op;
-    std::shared_ptr<Expr> lhs, rhs, index_expr;
-    std::vector<std::shared_ptr<Expr>> args;   // for Call
-};
-
-using ExprP = std::shared_ptr<Expr>;
-
-/* ---- Stmt kinds ---- */
-enum class SK {
-    VarDecl, ArrayDecl, Assign, ArrayAssign,
-    If, While, RangeFor,
-    Return, Emit, FuncDecl, ExprStmt
-};
-
-struct Stmt {
-    SK kind;
-    std::string name;                        // variable / function name
-    ExprP       expr;                        // RHS / condition / emit value
-    ExprP       start_e, end_e;             // range loop bounds
-    ExprP       index_expr;                  // array assignment index
-    std::vector<std::shared_ptr<Stmt>> body;       // then-block / loop body / func body
-    std::vector<std::shared_ptr<Stmt>> else_body;  // otherwise block
-    std::vector<std::string> params;         // function parameters
-    std::vector<ExprP>       init_exprs;    // array initializer list
-    ExprP                    arr_size;       // array declared size
-};
-
-using StmtP = std::shared_ptr<Stmt>;
-
-/* =========================================================
  *  INTERPRETER STATE
  * ========================================================= */
 
@@ -84,7 +37,7 @@ struct ReturnSignal {
 struct Env {
     std::map<std::string, Value>                   vars;
     std::map<std::string, std::vector<Value>>      arrays;
-    Env* parent = nullptr;   // for lexical scoping (unused here — we use flat env per call)
+    Env* parent = nullptr;
 };
 
 /* Function definitions */
@@ -94,8 +47,8 @@ struct FuncDef {
 };
 
 /* Global state */
-std::map<std::string, FuncDef> g_functions;  // user-defined functions
-Env g_env;                                    // global environment
+std::map<std::string, FuncDef> g_functions;
+Env g_env;
 
 /* =========================================================
  *  FORWARD DECLARATIONS
@@ -111,7 +64,6 @@ Value callBuiltin(const std::string& name,
                   const std::vector<Value>& argvals)
 {
     if (name == "size") {
-        // size(arr) — array size is tracked separately; just return 0 as stub
         std::cerr << "[interp] built-in size() called with scalar arg" << std::endl;
         return 0;
     }
@@ -148,15 +100,14 @@ std::vector<Value>& resolveArray(const std::string& name, Env& env) {
  * ========================================================= */
 Value evalExpr(const ExprP& e, Env& env) {
     switch (e->kind) {
+
     case EK::Num:
         return e->num_val;
 
     case EK::Str:
-        // String literals evaluate to 0 in numeric context
         return 0;
 
     case EK::Var: {
-        // Could be a scalar variable or an array name passed to size()
         const std::string& n = e->str_val;
         if (env.vars.count(n)) return env.vars[n];
         if (&env != &g_env && g_env.vars.count(n)) return g_env.vars[n];
@@ -175,7 +126,6 @@ Value evalExpr(const ExprP& e, Env& env) {
     }
 
     case EK::BinOp: {
-        // Short-circuit for 'and' / 'or'
         if (e->op == "and") {
             Value l = evalExpr(e->lhs, env);
             if (!l) return 0;
@@ -220,16 +170,11 @@ Value evalExpr(const ExprP& e, Env& env) {
     case EK::Call: {
         const std::string& fname = e->str_val;
 
-        /* Evaluate all arguments */
         std::vector<Value> argvals;
         for (auto& a : e->args)
             argvals.push_back(evalExpr(a, env));
 
-        /* Special built-in: size(arrName) */
         if (fname == "size") {
-            /* size takes the array name as first arg — but in our grammar
-               it's parsed as an expression; if it was a Var node, look it
-               up as an array */
             if (!e->args.empty() && e->args[0]->kind == EK::Var) {
                 const std::string& aname = e->args[0]->str_val;
                 if (env.arrays.count(aname))
@@ -237,10 +182,9 @@ Value evalExpr(const ExprP& e, Env& env) {
                 if (g_env.arrays.count(aname))
                     return (Value)g_env.arrays[aname].size();
             }
-            return argvals.empty() ? 0 : argvals[0]; // fallback
+            return argvals.empty() ? 0 : argvals[0];
         }
 
-        /* User-defined function */
         if (g_functions.count(fname)) {
             FuncDef& fd = g_functions[fname];
             if (argvals.size() != fd.params.size()) {
@@ -249,7 +193,6 @@ Value evalExpr(const ExprP& e, Env& env) {
                           << argvals.size() << std::endl;
                 exit(1);
             }
-            /* Create local environment */
             Env local;
             for (size_t i = 0; i < fd.params.size(); ++i)
                 local.vars[fd.params[i]] = argvals[i];
@@ -259,10 +202,9 @@ Value evalExpr(const ExprP& e, Env& env) {
             } catch (ReturnSignal& rs) {
                 return rs.value;
             }
-            return 0; // void function
+            return 0;
         }
 
-        /* Built-in vision stubs */
         return callBuiltin(fname, argvals);
     }
     }
@@ -296,13 +238,11 @@ void execStmt(const StmtP& s, Env& env) {
 
     case SK::Assign: {
         Value v = evalExpr(s->expr, env);
-        // Look for variable in current env, then global
         if (env.vars.count(s->name)) {
             env.vars[s->name] = v;
         } else if (&env != &g_env && g_env.vars.count(s->name)) {
             g_env.vars[s->name] = v;
         } else {
-            // Create in current env
             env.vars[s->name] = v;
         }
         break;
@@ -338,14 +278,12 @@ void execStmt(const StmtP& s, Env& env) {
     }
 
     case SK::RangeFor: {
-        Value from_val = evalExpr(s->start_e, env);
-        Value until_val = evalExpr(s->end_e, env);
-        env.vars[s->name] = from_val;
+        Value from_val  = evalExpr(s->start_e, env);
+        Value until_val = evalExpr(s->end_e,   env);
         for (Value i = from_val; i < until_val; ++i) {
             env.vars[s->name] = i;
             execBlock(s->body, env);
         }
-        // Clean up loop variable
         env.vars.erase(s->name);
         break;
     }
@@ -370,7 +308,7 @@ void execStmt(const StmtP& s, Env& env) {
     }
 
     case SK::ExprStmt: {
-        evalExpr(s->expr, env);  // side effects only (e.g. function call)
+        evalExpr(s->expr, env);
         break;
     }
     }
@@ -455,14 +393,60 @@ StmtP makeExprStmt(ExprP e) {
 %}
 
 /* =========================================================
- *  BISON DECLARATIONS
+ *  %code requires — goes into BOTH interp.tab.cpp AND interp.tab.hpp
+ *  so the Flex lexer can see these types when it #includes interp.tab.hpp
  * ========================================================= */
-
 %code requires {
     #include <vector>
     #include <string>
     #include <memory>
+
+    /* A runtime value — all scalars are 64-bit integers */
+    using Value = long long;
+
+    /* ---- Expr kinds ---- */
+    enum class EK {
+        Num, Str, Var, ArrayAccess,
+        BinOp, UnOp, Call
+    };
+
+    struct Expr {
+        EK kind;
+        Value          num_val   = 0;
+        std::string    str_val;
+        std::string    op;
+        std::shared_ptr<Expr> lhs, rhs, index_expr;
+        std::vector<std::shared_ptr<Expr>> args;
+    };
+
+    using ExprP = std::shared_ptr<Expr>;
+
+    /* ---- Stmt kinds ---- */
+    enum class SK {
+        VarDecl, ArrayDecl, Assign, ArrayAssign,
+        If, While, RangeFor,
+        Return, Emit, FuncDecl, ExprStmt
+    };
+
+    struct Stmt {
+        SK kind;
+        std::string name;
+        std::shared_ptr<Expr>  expr;
+        std::shared_ptr<Expr>  start_e, end_e;
+        std::shared_ptr<Expr>  index_expr;
+        std::vector<std::shared_ptr<Stmt>> body;
+        std::vector<std::shared_ptr<Stmt>> else_body;
+        std::vector<std::string> params;
+        std::vector<std::shared_ptr<Expr>> init_exprs;
+        std::shared_ptr<Expr>  arr_size;
+    };
+
+    using StmtP = std::shared_ptr<Stmt>;
 }
+
+/* =========================================================
+ *  BISON DECLARATIONS
+ * ========================================================= */
 
 %union {
     long long                            num;
@@ -503,7 +487,6 @@ StmtP makeExprStmt(ExprP e) {
 
 program:
     statement_list {
-        /* Execute all top-level statements immediately */
         for (auto& s : *$1)
             execStmt(s, g_env);
         delete $1;
