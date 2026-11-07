@@ -141,6 +141,14 @@ llvm::Value* BlockAST::codegen() {
 
 // Build native main, emit top-level statements, and terminate the entry block.
 llvm::Value* ProgramAST::codegen() {
+	// Declare every user function before emitting bodies to support forward calls.
+	for (auto& statement : statements) {
+		auto* function = dynamic_cast<FunctionAST*>(statement.get());
+		if (!function || cgContext.module->getFunction(function->name)) continue;
+		std::vector<llvm::Type*> parameters(function->params.size(), llvm::Type::getInt64Ty(*cgContext.context));
+		auto* signature = llvm::FunctionType::get(llvm::Type::getInt64Ty(*cgContext.context), parameters, false);
+		llvm::Function::Create(signature, llvm::Function::ExternalLinkage, function->name, cgContext.module.get());
+	}
 	for (auto& statement : statements)
 		if (dynamic_cast<FunctionAST*>(statement.get()) && !statement->codegen()) return nullptr;
 	auto* type = llvm::FunctionType::get(llvm::Type::getInt32Ty(*cgContext.context), false);
