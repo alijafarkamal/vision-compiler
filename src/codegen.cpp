@@ -124,3 +124,28 @@ llvm::Value* EmitAST::codegen() {
 	}
 	return cgContext.builder->CreateCall(printf, {format, emitted}, "emitcall");
 }
+
+// Lower conditional statements to LLVM then, else, and merge basic blocks.
+llvm::Value* IfAST::codegen() {
+	auto* test = condition->codegen();
+	if (!test) return nullptr;
+	auto* zero = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*cgContext.context), 0);
+	auto* predicate = cgContext.builder->CreateICmpNE(test, zero, "ifcond");
+	auto* function = cgContext.builder->GetInsertBlock()->getParent();
+	auto* thenBlockIR = llvm::BasicBlock::Create(*cgContext.context, "then", function);
+	auto* elseBlockIR = llvm::BasicBlock::Create(*cgContext.context, "else");
+	auto* mergeBlock = llvm::BasicBlock::Create(*cgContext.context, "ifcont");
+	cgContext.builder->CreateCondBr(predicate, thenBlockIR, elseBlock ? elseBlockIR : mergeBlock);
+	cgContext.builder->SetInsertPoint(thenBlockIR);
+	thenBlock->codegen();
+	if (!cgContext.builder->GetInsertBlock()->getTerminator()) cgContext.builder->CreateBr(mergeBlock);
+	if (elseBlock) {
+		function->insert(function->end(), elseBlockIR);
+		cgContext.builder->SetInsertPoint(elseBlockIR);
+		elseBlock->codegen();
+		if (!cgContext.builder->GetInsertBlock()->getTerminator()) cgContext.builder->CreateBr(mergeBlock);
+	}
+	function->insert(function->end(), mergeBlock);
+	cgContext.builder->SetInsertPoint(mergeBlock);
+	return mergeBlock;
+}
