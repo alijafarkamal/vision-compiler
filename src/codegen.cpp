@@ -2,6 +2,7 @@
 #include "CodeGen.h"
 #include <llvm/IR/Constants.h>
 #include <llvm/IR/BasicBlock.h>
+#include <llvm/IR/DerivedTypes.h>
 #include <llvm/IR/Function.h>
 #include <llvm/IR/Instructions.h>
 #include <iostream>
@@ -109,4 +110,17 @@ llvm::Value* ProgramAST::codegen() {
 		if (!dynamic_cast<FunctionAST*>(statement.get()) && !statement->codegen()) return nullptr;
 	if (!entry->getTerminator()) cgContext.builder->CreateRet(llvm::ConstantInt::get(llvm::Type::getInt32Ty(*cgContext.context), 0));
 	return function;
+}
+
+// Route EdgeFlow emit values through the native variadic printf function.
+llvm::Value* EmitAST::codegen() {
+	auto* emitted = value->codegen();
+	if (!emitted) return nullptr;
+	auto* format = cgContext.builder->CreateGlobalStringPtr(emitted->getType()->isPointerTy() ? "%s\n" : "%lld\n");
+	auto* printf = cgContext.module->getFunction("printf");
+	if (!printf) {
+		auto* type = llvm::FunctionType::get(llvm::Type::getInt32Ty(*cgContext.context), llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(*cgContext.context)), true);
+		printf = llvm::Function::Create(type, llvm::Function::ExternalLinkage, "printf", cgContext.module.get());
+	}
+	return cgContext.builder->CreateCall(printf, {format, emitted}, "emitcall");
 }
