@@ -58,5 +58,20 @@ llvm::Value* BinaryExprAST::codegen() {
 	if (op == "*") return cgContext.builder->CreateMul(left, right, "multmp");
 	if (op == "/") return cgContext.builder->CreateSDiv(left, right, "divtmp");
 	if (op == "%") return cgContext.builder->CreateSRem(left, right, "modtmp");
+	auto* comparison = static_cast<llvm::Value*>(nullptr);
+	if (op == "==") comparison = cgContext.builder->CreateICmpEQ(left, right, "eqtmp");
+	if (op == "!=") comparison = cgContext.builder->CreateICmpNE(left, right, "netmp");
+	if (op == "<") comparison = cgContext.builder->CreateICmpSLT(left, right, "lttmp");
+	if (op == "<=") comparison = cgContext.builder->CreateICmpSLE(left, right, "letmp");
+	if (op == ">") comparison = cgContext.builder->CreateICmpSGT(left, right, "gttmp");
+	if (op == ">=") comparison = cgContext.builder->CreateICmpSGE(left, right, "getmp");
+	if (comparison) return cgContext.builder->CreateZExt(comparison, llvm::Type::getInt64Ty(*cgContext.context));
+	if (op == "and" || op == "or") {
+		auto* zero = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*cgContext.context), 0);
+		auto* lhsBool = cgContext.builder->CreateICmpNE(left, zero);
+		auto* rhsBool = cgContext.builder->CreateICmpNE(right, zero);
+		auto* result = op == "and" ? cgContext.builder->CreateAnd(lhsBool, rhsBool) : cgContext.builder->CreateOr(lhsBool, rhsBool);
+		return cgContext.builder->CreateZExt(result, llvm::Type::getInt64Ty(*cgContext.context));
+	}
 	return nullptr;
 }
