@@ -136,7 +136,8 @@ llvm::Value* BlockAST::codegen() {
 		}
 	}
 	cgContext.namedValues = std::move(previousValues);
-	return last;
+	// Represent an empty block as a successful no-op for its parent statement.
+	return last ? last : llvm::ConstantInt::get(llvm::Type::getInt64Ty(*cgContext.context), 0);
 }
 
 // Build native main, emit top-level statements, and terminate the entry block.
