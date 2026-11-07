@@ -231,3 +231,16 @@ llvm::Value* FunctionAST::codegen() {
 	else cgContext.builder->ClearInsertionPoint();
 	return function;
 }
+
+// Lower calls to previously emitted EdgeFlow functions after checking arity.
+llvm::Value* CallAST::codegen() {
+	auto* function = cgContext.module->getFunction(callee);
+	if (!function || function->arg_size() != args.size()) return nullptr;
+	std::vector<llvm::Value*> arguments;
+	for (auto& argument : args) {
+		auto* value = argument->codegen();
+		if (!value) return nullptr;
+		arguments.push_back(value);
+	}
+	return cgContext.builder->CreateCall(function, arguments, "calltmp");
+}
