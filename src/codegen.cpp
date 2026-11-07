@@ -290,6 +290,7 @@ static llvm::Function* getImageRuntimeFunction(const std::string& name) {
 	else if (name == "load_model") { symbol = "edge_load_model"; parameters = {string}; }
 	else if (name == "detect") { symbol = "edge_detect"; parameters = {i64, i64}; }
 	else return nullptr;
+	if (auto* existing = cgContext.module->getFunction(symbol)) return existing;
 	auto* type = llvm::FunctionType::get(i64, parameters, false);
 	return llvm::Function::Create(type, llvm::Function::ExternalLinkage, symbol, cgContext.module.get());
 }
