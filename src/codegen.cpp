@@ -243,6 +243,11 @@ static llvm::Function* getImageRuntimeFunction(const std::string& name) {
 	else if (name == "grayscale" || name == "show") { symbol = name == "show" ? "edge_show" : "edge_grayscale"; parameters = {i64}; }
 	else if (name == "blur") { symbol = "edge_blur"; parameters = {i64, i64}; }
 	else if (name == "save") { symbol = "edge_save"; parameters = {i64, string}; }
+	// Map camera and model operations to their separate runtime wrappers.
+	else if (name == "open_camera") { symbol = "edge_open_camera"; parameters = {i64}; }
+	else if (name == "camera_read") { symbol = "edge_camera_read"; parameters = {i64}; }
+	else if (name == "load_model") { symbol = "edge_load_model"; parameters = {string}; }
+	else if (name == "detect") { symbol = "edge_detect"; parameters = {i64, i64}; }
 	else return nullptr;
 	auto* type = llvm::FunctionType::get(i64, parameters, false);
 	return llvm::Function::Create(type, llvm::Function::ExternalLinkage, symbol, cgContext.module.get());
