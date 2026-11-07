@@ -1,6 +1,7 @@
 #include "AST.h"
 #include "CodeGen.h"
 #include <llvm/IR/Constants.h>
+#include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/Function.h>
 #include <llvm/IR/Instructions.h>
 #include <iostream>
@@ -94,4 +95,18 @@ llvm::Value* BlockAST::codegen() {
 	llvm::Value* last = nullptr;
 	for (auto& statement : statements) last = statement->codegen();
 	return last;
+}
+
+// Build native main, emit top-level statements, and terminate the entry block.
+llvm::Value* ProgramAST::codegen() {
+	for (auto& statement : statements)
+		if (dynamic_cast<FunctionAST*>(statement.get()) && !statement->codegen()) return nullptr;
+	auto* type = llvm::FunctionType::get(llvm::Type::getInt32Ty(*cgContext.context), false);
+	auto* function = llvm::Function::Create(type, llvm::Function::ExternalLinkage, "main", cgContext.module.get());
+	auto* entry = llvm::BasicBlock::Create(*cgContext.context, "entry", function);
+	cgContext.builder->SetInsertPoint(entry);
+	for (auto& statement : statements)
+		if (!dynamic_cast<FunctionAST*>(statement.get()) && !statement->codegen()) return nullptr;
+	if (!entry->getTerminator()) cgContext.builder->CreateRet(llvm::ConstantInt::get(llvm::Type::getInt32Ty(*cgContext.context), 0));
+	return function;
 }
