@@ -124,8 +124,18 @@ llvm::Value* UnaryExprAST::codegen() {
 
 // Emit block statements in source order and return the final generated value.
 llvm::Value* BlockAST::codegen() {
+	// Restore outer bindings after this lexical block has been emitted.
+	auto previousValues = cgContext.namedValues;
 	llvm::Value* last = nullptr;
-	for (auto& statement : statements) last = statement->codegen();
+	for (auto& statement : statements) {
+		if (cgContext.builder->GetInsertBlock()->getTerminator()) break;
+		last = statement->codegen();
+		if (!last && !cgContext.builder->GetInsertBlock()->getTerminator()) {
+			cgContext.namedValues = std::move(previousValues);
+			return nullptr;
+		}
+	}
+	cgContext.namedValues = std::move(previousValues);
 	return last;
 }
 
