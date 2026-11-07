@@ -205,12 +205,12 @@ llvm::Value* IfAST::codegen() {
 	auto* mergeBlock = llvm::BasicBlock::Create(*cgContext.context, "ifcont");
 	cgContext.builder->CreateCondBr(predicate, thenBlockIR, elseBlock ? elseBlockIR : mergeBlock);
 	cgContext.builder->SetInsertPoint(thenBlockIR);
-	thenBlock->codegen();
+	if (!thenBlock->codegen()) return nullptr;
 	if (!cgContext.builder->GetInsertBlock()->getTerminator()) cgContext.builder->CreateBr(mergeBlock);
 	if (elseBlock) {
 		function->insert(function->end(), elseBlockIR);
 		cgContext.builder->SetInsertPoint(elseBlockIR);
-		elseBlock->codegen();
+		if (!elseBlock->codegen()) return nullptr;
 		if (!cgContext.builder->GetInsertBlock()->getTerminator()) cgContext.builder->CreateBr(mergeBlock);
 	}
 	function->insert(function->end(), mergeBlock);
@@ -232,7 +232,7 @@ llvm::Value* WhileAST::codegen() {
 	cgContext.builder->CreateCondBr(cgContext.builder->CreateICmpNE(test, zero), bodyBlockIR, exitBlockIR);
 	function->insert(function->end(), bodyBlockIR);
 	cgContext.builder->SetInsertPoint(bodyBlockIR);
-	body->codegen();
+	if (!body->codegen()) return nullptr;
 	if (!cgContext.builder->GetInsertBlock()->getTerminator()) cgContext.builder->CreateBr(conditionBlockIR);
 	function->insert(function->end(), exitBlockIR);
 	cgContext.builder->SetInsertPoint(exitBlockIR);
@@ -260,7 +260,7 @@ llvm::Value* RangeLoopAST::codegen() {
 	cgContext.builder->CreateCondBr(cgContext.builder->CreateICmpSLT(current, limit), bodyBlockIR, exitBlockIR);
 	function->insert(function->end(), bodyBlockIR);
 	cgContext.builder->SetInsertPoint(bodyBlockIR);
-	body->codegen();
+	if (!body->codegen()) return nullptr;
 	if (!cgContext.builder->GetInsertBlock()->getTerminator()) cgContext.builder->CreateBr(stepBlockIR);
 	function->insert(function->end(), stepBlockIR);
 	cgContext.builder->SetInsertPoint(stepBlockIR);
@@ -291,7 +291,8 @@ llvm::Value* FunctionAST::codegen() {
 		cgContext.builder->CreateStore(&argument, slot);
 		cgContext.namedValues[params[index++]] = slot;
 	}
-	body->codegen();
+	// Propagate invalid statements instead of retaining a partial function body.
+	if (!body->codegen()) return nullptr;
 	if (!cgContext.builder->GetInsertBlock()->getTerminator())
 		cgContext.builder->CreateRet(llvm::ConstantInt::get(llvm::Type::getInt64Ty(*cgContext.context), 0));
 	cgContext.namedValues = std::move(previousValues);
