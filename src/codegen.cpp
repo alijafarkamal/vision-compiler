@@ -88,3 +88,10 @@ llvm::Value* UnaryExprAST::codegen() {
 	}
 	return nullptr;
 }
+
+// Emit block statements in source order and return the final generated value.
+llvm::Value* BlockAST::codegen() {
+	llvm::Value* last = nullptr;
+	for (auto& statement : statements) last = statement->codegen();
+	return last;
+}
