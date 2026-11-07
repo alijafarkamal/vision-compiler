@@ -205,3 +205,29 @@ llvm::Value* RangeLoopAST::codegen() {
 	else cgContext.namedValues.erase(var);
 	return exitBlockIR;
 }
+
+// Lower functions with 64-bit parameters, scoped locals, and a default return.
+llvm::Value* FunctionAST::codegen() {
+	std::vector<llvm::Type*> parameterTypes(params.size(), llvm::Type::getInt64Ty(*cgContext.context));
+	auto* functionType = llvm::FunctionType::get(llvm::Type::getInt64Ty(*cgContext.context), parameterTypes, false);
+	auto* function = cgContext.module->getFunction(name);
+	if (!function) function = llvm::Function::Create(functionType, llvm::Function::ExternalLinkage, name, cgContext.module.get());
+	auto* previousBlock = cgContext.builder->GetInsertBlock();
+	auto previousValues = cgContext.namedValues;
+	auto* entry = llvm::BasicBlock::Create(*cgContext.context, "entry", function);
+	cgContext.builder->SetInsertPoint(entry);
+	size_t index = 0;
+	for (auto& argument : function->args()) {
+		argument.setName(params[index]);
+		auto* slot = createEntryAlloca(function, params[index], llvm::Type::getInt64Ty(*cgContext.context));
+		cgContext.builder->CreateStore(&argument, slot);
+		cgContext.namedValues[params[index++]] = slot;
+	}
+	body->codegen();
+	if (!cgContext.builder->GetInsertBlock()->getTerminator())
+		cgContext.builder->CreateRet(llvm::ConstantInt::get(llvm::Type::getInt64Ty(*cgContext.context), 0));
+	cgContext.namedValues = std::move(previousValues);
+	if (previousBlock) cgContext.builder->SetInsertPoint(previousBlock);
+	else cgContext.builder->ClearInsertionPoint();
+	return function;
+}
