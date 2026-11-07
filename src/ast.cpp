@@ -19,7 +19,8 @@ void WhileAST::print(int indent) const { printIndent(indent); std::cout << "Whil
 void RangeLoopAST::print(int indent) const { printIndent(indent); std::cout << "RangeLoop(" << var << ")\n"; start->print(indent + 1); end->print(indent + 1); body->print(indent + 1); }
 void ReturnAST::print(int indent) const { printIndent(indent); std::cout << "Return\n"; if (value) value->print(indent + 1); }
 void EmitAST::print(int indent) const { printIndent(indent); std::cout << "Emit\n"; value->print(indent + 1); }
-void FunctionAST::print(int indent) const { printIndent(indent); std::cout << "Function(" << name << ")\n"; body->print(indent + 1); }
+// Include parameters in the printed function subtree.
+void FunctionAST::print(int indent) const { printIndent(indent); std::cout << "Function(" << name << ")\n"; for (const auto& param : params) { printIndent(indent + 1); std::cout << "Param(" << param << ")\n"; } body->print(indent + 1); }
 void ProgramAST::print(int indent) const { printIndent(indent); std::cout << "Program\n"; for (const auto& stmt : statements) stmt->print(indent + 1); }
 
 // Remove top-level branches whose integer conditions are statically known.
