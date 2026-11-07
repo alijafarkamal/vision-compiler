@@ -47,3 +47,16 @@ llvm::Value* AssignmentAST::codegen() {
 	cgContext.builder->CreateStore(assigned, found->second);
 	return assigned;
 }
+
+// Lower integer arithmetic while preserving EdgeFlow's signed 64-bit values.
+llvm::Value* BinaryExprAST::codegen() {
+	auto* left = lhs->codegen();
+	auto* right = rhs->codegen();
+	if (!left || !right) return nullptr;
+	if (op == "+") return cgContext.builder->CreateAdd(left, right, "addtmp");
+	if (op == "-") return cgContext.builder->CreateSub(left, right, "subtmp");
+	if (op == "*") return cgContext.builder->CreateMul(left, right, "multmp");
+	if (op == "/") return cgContext.builder->CreateSDiv(left, right, "divtmp");
+	if (op == "%") return cgContext.builder->CreateSRem(left, right, "modtmp");
+	return nullptr;
+}
