@@ -84,8 +84,33 @@ llvm::Value* ArrayAccessAST::codegen() {
 // Lower integer arithmetic while preserving EdgeFlow's signed 64-bit values.
 llvm::Value* BinaryExprAST::codegen() {
 	auto* left = lhs->codegen();
+	if (!left) return nullptr;
+	// Evaluate logical RHS expressions only when short-circuit rules require them.
+	if (op == "and" || op == "or") {
+		auto* integerType = llvm::Type::getInt64Ty(*cgContext.context);
+		auto* booleanType = llvm::Type::getInt1Ty(*cgContext.context);
+		auto* zero = llvm::ConstantInt::get(integerType, 0);
+		auto* leftTruth = cgContext.builder->CreateICmpNE(left, zero);
+		auto* function = cgContext.builder->GetInsertBlock()->getParent();
+		auto* leftBlock = cgContext.builder->GetInsertBlock();
+		auto* rightBlock = llvm::BasicBlock::Create(*cgContext.context, "logicrhs", function);
+		auto* mergeBlock = llvm::BasicBlock::Create(*cgContext.context, "logicmerge", function);
+		if (op == "and") cgContext.builder->CreateCondBr(leftTruth, rightBlock, mergeBlock);
+		else cgContext.builder->CreateCondBr(leftTruth, mergeBlock, rightBlock);
+		cgContext.builder->SetInsertPoint(rightBlock);
+		auto* right = rhs->codegen();
+		if (!right) return nullptr;
+		auto* rightTruth = cgContext.builder->CreateICmpNE(right, zero);
+		auto* rightEnd = cgContext.builder->GetInsertBlock();
+		cgContext.builder->CreateBr(mergeBlock);
+		cgContext.builder->SetInsertPoint(mergeBlock);
+		auto* result = cgContext.builder->CreatePHI(booleanType, 2, "logicresult");
+		result->addIncoming(llvm::ConstantInt::get(booleanType, op == "or"), leftBlock);
+		result->addIncoming(rightTruth, rightEnd);
+		return cgContext.builder->CreateZExt(result, integerType);
+	}
 	auto* right = rhs->codegen();
-	if (!left || !right) return nullptr;
+	if (!right) return nullptr;
 	if (op == "+") return cgContext.builder->CreateAdd(left, right, "addtmp");
 	if (op == "-") return cgContext.builder->CreateSub(left, right, "subtmp");
 	if (op == "*") return cgContext.builder->CreateMul(left, right, "multmp");
@@ -99,13 +124,6 @@ llvm::Value* BinaryExprAST::codegen() {
 	if (op == ">") comparison = cgContext.builder->CreateICmpSGT(left, right, "gttmp");
 	if (op == ">=") comparison = cgContext.builder->CreateICmpSGE(left, right, "getmp");
 	if (comparison) return cgContext.builder->CreateZExt(comparison, llvm::Type::getInt64Ty(*cgContext.context));
-	if (op == "and" || op == "or") {
-		auto* zero = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*cgContext.context), 0);
-		auto* lhsBool = cgContext.builder->CreateICmpNE(left, zero);
-		auto* rhsBool = cgContext.builder->CreateICmpNE(right, zero);
-		auto* result = op == "and" ? cgContext.builder->CreateAnd(lhsBool, rhsBool) : cgContext.builder->CreateOr(lhsBool, rhsBool);
-		return cgContext.builder->CreateZExt(result, llvm::Type::getInt64Ty(*cgContext.context));
-	}
 	return nullptr;
 }
 
