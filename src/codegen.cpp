@@ -232,9 +232,26 @@ llvm::Value* FunctionAST::codegen() {
 	return function;
 }
 
+// Declare core image runtime wrappers with signatures matching vision_runtime.cpp.
+static llvm::Function* getImageRuntimeFunction(const std::string& name) {
+	auto* i64 = llvm::Type::getInt64Ty(*cgContext.context);
+	auto* string = llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(*cgContext.context));
+	std::vector<llvm::Type*> parameters;
+	std::string symbol;
+	if (name == "load_image") { symbol = "edge_load_image"; parameters = {string}; }
+	else if (name == "resize") { symbol = "edge_resize"; parameters = {i64, i64, i64}; }
+	else if (name == "grayscale" || name == "show") { symbol = name == "show" ? "edge_show" : "edge_grayscale"; parameters = {i64}; }
+	else if (name == "blur") { symbol = "edge_blur"; parameters = {i64, i64}; }
+	else if (name == "save") { symbol = "edge_save"; parameters = {i64, string}; }
+	else return nullptr;
+	auto* type = llvm::FunctionType::get(i64, parameters, false);
+	return llvm::Function::Create(type, llvm::Function::ExternalLinkage, symbol, cgContext.module.get());
+}
+
 // Lower calls to previously emitted EdgeFlow functions after checking arity.
 llvm::Value* CallAST::codegen() {
 	auto* function = cgContext.module->getFunction(callee);
+	if (!function) function = getImageRuntimeFunction(callee);
 	if (!function || function->arg_size() != args.size()) return nullptr;
 	std::vector<llvm::Value*> arguments;
 	for (auto& argument : args) {
