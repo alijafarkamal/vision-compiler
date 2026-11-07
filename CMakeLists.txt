@@ -56,8 +56,9 @@ if(LLVM_FOUND AND OpenCV_FOUND)
     # Phase 2 Executable
     add_executable(edgeflow
         src/main.cpp
-        src/AST.cpp
-        src/CodeGen.cpp
+        # Use lowercase paths to avoid case-only source collisions on Windows.
+        src/ast.cpp
+        src/codegen.cpp
         src/Semantic.cpp
         ${BISON_EdgeParser_OUTPUTS}
         ${FLEX_EdgeScanner_OUTPUTS}
