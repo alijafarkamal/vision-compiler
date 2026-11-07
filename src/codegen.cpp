@@ -244,3 +244,9 @@ llvm::Value* CallAST::codegen() {
 	}
 	return cgContext.builder->CreateCall(function, arguments, "calltmp");
 }
+
+// Lower give statements to a typed LLVM return instruction.
+llvm::Value* ReturnAST::codegen() {
+	auto* result = value ? value->codegen() : llvm::ConstantInt::get(llvm::Type::getInt64Ty(*cgContext.context), 0);
+	return result ? cgContext.builder->CreateRet(result) : nullptr;
+}
