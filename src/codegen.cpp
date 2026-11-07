@@ -318,10 +318,16 @@ llvm::Value* CallAST::codegen() {
 	return cgContext.builder->CreateCall(function, arguments, "calltmp");
 }
 
-// Lower give statements to a typed LLVM return instruction.
+// Match give values to the return type of the enclosing LLVM function.
 llvm::Value* ReturnAST::codegen() {
 	auto* result = value ? value->codegen() : llvm::ConstantInt::get(llvm::Type::getInt64Ty(*cgContext.context), 0);
-	return result ? cgContext.builder->CreateRet(result) : nullptr;
+	if (!result) return nullptr;
+	auto* returnType = cgContext.builder->GetInsertBlock()->getParent()->getReturnType();
+	if (result->getType() != returnType) {
+		if (!result->getType()->isIntegerTy() || !returnType->isIntegerTy()) return nullptr;
+		result = cgContext.builder->CreateIntCast(result, returnType, true, "retcast");
+	}
+	return cgContext.builder->CreateRet(result);
 }
 
 // Store string literals as null-terminated global constants for runtime calls.
