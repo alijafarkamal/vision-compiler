@@ -8,6 +8,7 @@
 
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/Support/FileSystem.h>
+#include <llvm/IR/Verifier.h>
 
 extern int yyparse();
 extern "C" FILE* yyin;
@@ -52,6 +53,11 @@ int main(int argc, char** argv) {
             llvm::Value* prog = rootNode->codegen();
             if (!prog) {
                 std::cerr << "Code generation failed." << std::endl;
+                return 1;
+            }
+            // Reject invalid LLVM modules before writing output IR.
+            if (llvm::verifyModule(*cgContext.module, &llvm::errs())) {
+                std::cerr << "Generated invalid LLVM IR." << std::endl;
                 return 1;
             }
             
