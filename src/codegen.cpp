@@ -25,7 +25,7 @@ llvm::Value* VarDeclAST::codegen() {
 	auto* function = cgContext.builder->GetInsertBlock()->getParent();
 	auto* initial = init ? init->codegen() : llvm::ConstantInt::get(llvm::Type::getInt64Ty(*cgContext.context), 0);
 	if (!initial) return nullptr;
-	auto* slot = createEntryAlloca(function, name, llvm::Type::getInt64Ty(*cgContext.context));
+	auto* slot = createEntryAlloca(function, name, initial->getType());
 	cgContext.builder->CreateStore(initial, slot);
 	cgContext.namedValues[name] = slot;
 	return initial;
@@ -64,10 +64,13 @@ llvm::Value* AssignmentAST::codegen() {
 	if (!assigned || found == cgContext.namedValues.end()) return nullptr;
 	if (index) {
 		auto* offset = index->codegen();
-		if (!offset) return nullptr;
+		if (!offset || !assigned->getType()->isIntegerTy(64) || !offset->getType()->isIntegerTy(64)) return nullptr;
 		auto* type = llvm::Type::getInt64Ty(*cgContext.context);
 		cgContext.builder->CreateStore(assigned, cgContext.builder->CreateGEP(type, found->second, offset, "arrayassign"));
-	} else cgContext.builder->CreateStore(assigned, found->second);
+	} else {
+		if (assigned->getType() != found->second->getAllocatedType()) return nullptr;
+		cgContext.builder->CreateStore(assigned, found->second);
+	}
 	return assigned;
 }
 
