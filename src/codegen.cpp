@@ -38,3 +38,12 @@ llvm::Value* VariableExprAST::codegen() {
 	}
 	return cgContext.builder->CreateLoad(found->second->getAllocatedType(), found->second, name);
 }
+
+// Store a new value into an existing scalar variable slot.
+llvm::Value* AssignmentAST::codegen() {
+	auto* assigned = value->codegen();
+	auto found = cgContext.namedValues.find(name);
+	if (!assigned || found == cgContext.namedValues.end() || index) return nullptr;
+	cgContext.builder->CreateStore(assigned, found->second);
+	return assigned;
+}
