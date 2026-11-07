@@ -21,3 +21,16 @@ void ReturnAST::print(int indent) const { printIndent(indent); std::cout << "Ret
 void EmitAST::print(int indent) const { printIndent(indent); std::cout << "Emit\n"; value->print(indent + 1); }
 void FunctionAST::print(int indent) const { printIndent(indent); std::cout << "Function(" << name << ")\n"; body->print(indent + 1); }
 void ProgramAST::print(int indent) const { printIndent(indent); std::cout << "Program\n"; for (const auto& stmt : statements) stmt->print(indent + 1); }
+
+// Remove top-level branches whose integer conditions are statically known.
+void ProgramAST::optimize() {
+	for (size_t index = 0; index < statements.size();) {
+		auto* branch = dynamic_cast<IfAST*>(statements[index].get());
+		auto* condition = branch ? dynamic_cast<NumberExprAST*>(branch->condition.get()) : nullptr;
+		if (!condition) { ++index; continue; }
+		if (condition->val) statements[index] = std::move(branch->thenBlock);
+		else if (branch->elseBlock) statements[index] = std::move(branch->elseBlock);
+		else { statements.erase(statements.begin() + index); continue; }
+		++index;
+	}
+}
