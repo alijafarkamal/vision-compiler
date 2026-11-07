@@ -20,6 +20,11 @@ static llvm::AllocaInst* createEntryAlloca(llvm::Function* function, const std::
 	return entryBuilder.CreateAlloca(type, nullptr, name);
 }
 
+// Ensure numeric operators only receive EdgeFlow's signed 64-bit integer type.
+static bool isInt64(llvm::Value* value) {
+	return value && value->getType()->isIntegerTy(64);
+}
+
 // Lower a scalar declaration by allocating and initializing its local slot.
 llvm::Value* VarDeclAST::codegen() {
 	auto* function = cgContext.builder->GetInsertBlock()->getParent();
@@ -34,13 +39,13 @@ llvm::Value* VarDeclAST::codegen() {
 // Allocate an integer array and store each provided initializer element.
 llvm::Value* ArrayDeclAST::codegen() {
 	auto* count = size->codegen();
-	if (!count) return nullptr;
+	if (!isInt64(count)) return nullptr;
 	auto* elementType = llvm::Type::getInt64Ty(*cgContext.context);
 	auto* array = cgContext.builder->CreateAlloca(elementType, count, name);
 	cgContext.namedValues[name] = array;
 	for (size_t index = 0; index < elements.size(); ++index) {
 		auto* value = elements[index]->codegen();
-		if (!value) return nullptr;
+		if (!isInt64(value)) return nullptr;
 		auto* offset = llvm::ConstantInt::get(elementType, index);
 		cgContext.builder->CreateStore(value, cgContext.builder->CreateGEP(elementType, array, offset));
 	}
@@ -64,7 +69,7 @@ llvm::Value* AssignmentAST::codegen() {
 	if (!assigned || found == cgContext.namedValues.end()) return nullptr;
 	if (index) {
 		auto* offset = index->codegen();
-		if (!offset || !assigned->getType()->isIntegerTy(64) || !offset->getType()->isIntegerTy(64)) return nullptr;
+		if (!isInt64(offset) || !isInt64(assigned)) return nullptr;
 		auto* type = llvm::Type::getInt64Ty(*cgContext.context);
 		cgContext.builder->CreateStore(assigned, cgContext.builder->CreateGEP(type, found->second, offset, "arrayassign"));
 	} else {
@@ -78,7 +83,7 @@ llvm::Value* AssignmentAST::codegen() {
 llvm::Value* ArrayAccessAST::codegen() {
 	auto found = cgContext.namedValues.find(name);
 	auto* offset = index->codegen();
-	if (found == cgContext.namedValues.end() || !offset) return nullptr;
+	if (found == cgContext.namedValues.end() || !isInt64(offset)) return nullptr;
 	auto* type = llvm::Type::getInt64Ty(*cgContext.context);
 	auto* element = cgContext.builder->CreateGEP(type, found->second, offset, "arrayidx");
 	return cgContext.builder->CreateLoad(type, element, "arrayload");
@@ -87,7 +92,7 @@ llvm::Value* ArrayAccessAST::codegen() {
 // Lower integer arithmetic while preserving EdgeFlow's signed 64-bit values.
 llvm::Value* BinaryExprAST::codegen() {
 	auto* left = lhs->codegen();
-	if (!left) return nullptr;
+	if (!isInt64(left)) return nullptr;
 	// Evaluate logical RHS expressions only when short-circuit rules require them.
 	if (op == "and" || op == "or") {
 		auto* integerType = llvm::Type::getInt64Ty(*cgContext.context);
@@ -102,7 +107,7 @@ llvm::Value* BinaryExprAST::codegen() {
 		else cgContext.builder->CreateCondBr(leftTruth, mergeBlock, rightBlock);
 		cgContext.builder->SetInsertPoint(rightBlock);
 		auto* right = rhs->codegen();
-		if (!right) return nullptr;
+		if (!isInt64(right)) return nullptr;
 		auto* rightTruth = cgContext.builder->CreateICmpNE(right, zero);
 		auto* rightEnd = cgContext.builder->GetInsertBlock();
 		cgContext.builder->CreateBr(mergeBlock);
@@ -113,7 +118,7 @@ llvm::Value* BinaryExprAST::codegen() {
 		return cgContext.builder->CreateZExt(result, integerType);
 	}
 	auto* right = rhs->codegen();
-	if (!right) return nullptr;
+	if (!isInt64(right)) return nullptr;
 	if (op == "+") return cgContext.builder->CreateAdd(left, right, "addtmp");
 	if (op == "-") return cgContext.builder->CreateSub(left, right, "subtmp");
 	if (op == "*") return cgContext.builder->CreateMul(left, right, "multmp");
@@ -133,7 +138,7 @@ llvm::Value* BinaryExprAST::codegen() {
 // Lower unary negation and logical not to signed integer LLVM operations.
 llvm::Value* UnaryExprAST::codegen() {
 	auto* value = operand->codegen();
-	if (!value) return nullptr;
+	if (!isInt64(value)) return nullptr;
 	if (op == "-") return cgContext.builder->CreateNeg(value, "negtmp");
 	if (op == "not") {
 		auto* zero = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*cgContext.context), 0);
@@ -199,7 +204,7 @@ llvm::Value* EmitAST::codegen() {
 // Lower conditional statements to LLVM then, else, and merge basic blocks.
 llvm::Value* IfAST::codegen() {
 	auto* test = condition->codegen();
-	if (!test) return nullptr;
+	if (!isInt64(test)) return nullptr;
 	auto* zero = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*cgContext.context), 0);
 	auto* predicate = cgContext.builder->CreateICmpNE(test, zero, "ifcond");
 	auto* function = cgContext.builder->GetInsertBlock()->getParent();
@@ -230,7 +235,7 @@ llvm::Value* WhileAST::codegen() {
 	cgContext.builder->CreateBr(conditionBlockIR);
 	cgContext.builder->SetInsertPoint(conditionBlockIR);
 	auto* test = condition->codegen();
-	if (!test) return nullptr;
+	if (!isInt64(test)) return nullptr;
 	auto* zero = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*cgContext.context), 0);
 	cgContext.builder->CreateCondBr(cgContext.builder->CreateICmpNE(test, zero), bodyBlockIR, exitBlockIR);
 	function->insert(function->end(), bodyBlockIR);
@@ -247,7 +252,7 @@ llvm::Value* RangeLoopAST::codegen() {
 	auto* initial = start->codegen();
 	auto* limit = end->codegen();
 	auto* function = cgContext.builder->GetInsertBlock()->getParent();
-	if (!initial || !limit) return nullptr;
+	if (!isInt64(initial) || !isInt64(limit)) return nullptr;
 	auto previous = cgContext.namedValues.find(var);
 	auto* previousSlot = previous == cgContext.namedValues.end() ? nullptr : previous->second;
 	auto* slot = createEntryAlloca(function, var, llvm::Type::getInt64Ty(*cgContext.context));
