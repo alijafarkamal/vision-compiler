@@ -75,3 +75,16 @@ llvm::Value* BinaryExprAST::codegen() {
 	}
 	return nullptr;
 }
+
+// Lower unary negation and logical not to signed integer LLVM operations.
+llvm::Value* UnaryExprAST::codegen() {
+	auto* value = operand->codegen();
+	if (!value) return nullptr;
+	if (op == "-") return cgContext.builder->CreateNeg(value, "negtmp");
+	if (op == "not") {
+		auto* zero = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*cgContext.context), 0);
+		auto* isZero = cgContext.builder->CreateICmpEQ(value, zero);
+		return cgContext.builder->CreateZExt(isZero, llvm::Type::getInt64Ty(*cgContext.context));
+	}
+	return nullptr;
+}
