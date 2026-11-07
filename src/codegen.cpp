@@ -250,3 +250,9 @@ llvm::Value* ReturnAST::codegen() {
 	auto* result = value ? value->codegen() : llvm::ConstantInt::get(llvm::Type::getInt64Ty(*cgContext.context), 0);
 	return result ? cgContext.builder->CreateRet(result) : nullptr;
 }
+
+// Store string literals as null-terminated global constants for runtime calls.
+llvm::Value* StringExprAST::codegen() {
+	auto text = val.size() >= 2 ? val.substr(1, val.size() - 2) : val;
+	return cgContext.builder->CreateGlobalStringPtr(text, "str");
+}
