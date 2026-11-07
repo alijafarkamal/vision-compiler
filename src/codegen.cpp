@@ -3,6 +3,7 @@
 #include <llvm/IR/Constants.h>
 #include <llvm/IR/Function.h>
 #include <llvm/IR/Instructions.h>
+#include <iostream>
 
 CodeGenContext cgContext;
 
@@ -26,4 +27,14 @@ llvm::Value* VarDeclAST::codegen() {
 	cgContext.builder->CreateStore(initial, slot);
 	cgContext.namedValues[name] = slot;
 	return initial;
+}
+
+// Read a scalar by loading its previously allocated stack slot.
+llvm::Value* VariableExprAST::codegen() {
+	auto found = cgContext.namedValues.find(name);
+	if (found == cgContext.namedValues.end()) {
+		std::cerr << "Unknown variable name " << name << std::endl;
+		return nullptr;
+	}
+	return cgContext.builder->CreateLoad(found->second->getAllocatedType(), found->second, name);
 }
