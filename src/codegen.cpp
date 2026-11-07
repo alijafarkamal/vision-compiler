@@ -149,3 +149,24 @@ llvm::Value* IfAST::codegen() {
 	cgContext.builder->SetInsertPoint(mergeBlock);
 	return mergeBlock;
 }
+
+// Lower repeat-while loops to a condition block, body block, and exit block.
+llvm::Value* WhileAST::codegen() {
+	auto* function = cgContext.builder->GetInsertBlock()->getParent();
+	auto* conditionBlockIR = llvm::BasicBlock::Create(*cgContext.context, "whilecond", function);
+	auto* bodyBlockIR = llvm::BasicBlock::Create(*cgContext.context, "whilebody");
+	auto* exitBlockIR = llvm::BasicBlock::Create(*cgContext.context, "whileexit");
+	cgContext.builder->CreateBr(conditionBlockIR);
+	cgContext.builder->SetInsertPoint(conditionBlockIR);
+	auto* test = condition->codegen();
+	if (!test) return nullptr;
+	auto* zero = llvm::ConstantInt::get(llvm::Type::getInt64Ty(*cgContext.context), 0);
+	cgContext.builder->CreateCondBr(cgContext.builder->CreateICmpNE(test, zero), bodyBlockIR, exitBlockIR);
+	function->insert(function->end(), bodyBlockIR);
+	cgContext.builder->SetInsertPoint(bodyBlockIR);
+	body->codegen();
+	if (!cgContext.builder->GetInsertBlock()->getTerminator()) cgContext.builder->CreateBr(conditionBlockIR);
+	function->insert(function->end(), exitBlockIR);
+	cgContext.builder->SetInsertPoint(exitBlockIR);
+	return exitBlockIR;
+}
