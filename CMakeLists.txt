@@ -64,7 +64,7 @@ if(LLVM_FOUND AND OpenCV_FOUND)
         ${FLEX_EdgeScanner_OUTPUTS}
     )
 
-    llvm_map_components_to_libnames(llvm_libs core irreader support bitwriter target bitreader native)
+    llvm_map_components_to_libnames(llvm_libs core analysis irreader support bitwriter target bitreader native)
     target_link_libraries(edgeflow PRIVATE
         ${OpenCV_LIBS}
         ${llvm_libs}
