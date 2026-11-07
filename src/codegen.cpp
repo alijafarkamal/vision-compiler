@@ -170,3 +170,38 @@ llvm::Value* WhileAST::codegen() {
 	cgContext.builder->SetInsertPoint(exitBlockIR);
 	return exitBlockIR;
 }
+
+// Lower exclusive range loops with a scoped 64-bit induction variable.
+llvm::Value* RangeLoopAST::codegen() {
+	auto* initial = start->codegen();
+	auto* limit = end->codegen();
+	auto* function = cgContext.builder->GetInsertBlock()->getParent();
+	if (!initial || !limit) return nullptr;
+	auto previous = cgContext.namedValues.find(var);
+	auto* previousSlot = previous == cgContext.namedValues.end() ? nullptr : previous->second;
+	auto* slot = createEntryAlloca(function, var, llvm::Type::getInt64Ty(*cgContext.context));
+	cgContext.builder->CreateStore(initial, slot);
+	cgContext.namedValues[var] = slot;
+	auto* conditionBlockIR = llvm::BasicBlock::Create(*cgContext.context, "rangecond", function);
+	auto* bodyBlockIR = llvm::BasicBlock::Create(*cgContext.context, "rangebody");
+	auto* stepBlockIR = llvm::BasicBlock::Create(*cgContext.context, "rangestep");
+	auto* exitBlockIR = llvm::BasicBlock::Create(*cgContext.context, "rangeexit");
+	cgContext.builder->CreateBr(conditionBlockIR);
+	cgContext.builder->SetInsertPoint(conditionBlockIR);
+	auto* current = cgContext.builder->CreateLoad(slot->getAllocatedType(), slot, var);
+	cgContext.builder->CreateCondBr(cgContext.builder->CreateICmpSLT(current, limit), bodyBlockIR, exitBlockIR);
+	function->insert(function->end(), bodyBlockIR);
+	cgContext.builder->SetInsertPoint(bodyBlockIR);
+	body->codegen();
+	if (!cgContext.builder->GetInsertBlock()->getTerminator()) cgContext.builder->CreateBr(stepBlockIR);
+	function->insert(function->end(), stepBlockIR);
+	cgContext.builder->SetInsertPoint(stepBlockIR);
+	current = cgContext.builder->CreateLoad(slot->getAllocatedType(), slot, var);
+	cgContext.builder->CreateStore(cgContext.builder->CreateAdd(current, llvm::ConstantInt::get(current->getType(), 1)), slot);
+	cgContext.builder->CreateBr(conditionBlockIR);
+	function->insert(function->end(), exitBlockIR);
+	cgContext.builder->SetInsertPoint(exitBlockIR);
+	if (previousSlot) cgContext.namedValues[var] = previousSlot;
+	else cgContext.namedValues.erase(var);
+	return exitBlockIR;
+}
