@@ -31,6 +31,22 @@ llvm::Value* VarDeclAST::codegen() {
 	return initial;
 }
 
+// Allocate an integer array and store each provided initializer element.
+llvm::Value* ArrayDeclAST::codegen() {
+	auto* count = size->codegen();
+	if (!count) return nullptr;
+	auto* elementType = llvm::Type::getInt64Ty(*cgContext.context);
+	auto* array = cgContext.builder->CreateAlloca(elementType, count, name);
+	cgContext.namedValues[name] = array;
+	for (size_t index = 0; index < elements.size(); ++index) {
+		auto* value = elements[index]->codegen();
+		if (!value) return nullptr;
+		auto* offset = llvm::ConstantInt::get(elementType, index);
+		cgContext.builder->CreateStore(value, cgContext.builder->CreateGEP(elementType, array, offset));
+	}
+	return array;
+}
+
 // Read a scalar by loading its previously allocated stack slot.
 llvm::Value* VariableExprAST::codegen() {
 	auto found = cgContext.namedValues.find(name);
