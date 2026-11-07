@@ -329,9 +329,10 @@ llvm::Value* CallAST::codegen() {
 	if (!function) function = getImageRuntimeFunction(callee);
 	if (!function || function->arg_size() != args.size()) return nullptr;
 	std::vector<llvm::Value*> arguments;
-	for (auto& argument : args) {
-		auto* value = argument->codegen();
+	for (size_t index = 0; index < args.size(); ++index) {
+		auto* value = args[index]->codegen();
 		if (!value) return nullptr;
+		if (value->getType() != function->getFunctionType()->getParamType(index)) return nullptr;
 		arguments.push_back(value);
 	}
 	return cgContext.builder->CreateCall(function, arguments, "calltmp");
