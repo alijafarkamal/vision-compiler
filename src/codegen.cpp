@@ -57,13 +57,28 @@ llvm::Value* VariableExprAST::codegen() {
 	return cgContext.builder->CreateLoad(found->second->getAllocatedType(), found->second, name);
 }
 
-// Store a new value into an existing scalar variable slot.
+// Store a new value into a scalar slot or the selected array element.
 llvm::Value* AssignmentAST::codegen() {
 	auto* assigned = value->codegen();
 	auto found = cgContext.namedValues.find(name);
-	if (!assigned || found == cgContext.namedValues.end() || index) return nullptr;
-	cgContext.builder->CreateStore(assigned, found->second);
+	if (!assigned || found == cgContext.namedValues.end()) return nullptr;
+	if (index) {
+		auto* offset = index->codegen();
+		if (!offset) return nullptr;
+		auto* type = llvm::Type::getInt64Ty(*cgContext.context);
+		cgContext.builder->CreateStore(assigned, cgContext.builder->CreateGEP(type, found->second, offset, "arrayassign"));
+	} else cgContext.builder->CreateStore(assigned, found->second);
 	return assigned;
+}
+
+// Load an array element through a typed LLVM get-element-pointer instruction.
+llvm::Value* ArrayAccessAST::codegen() {
+	auto found = cgContext.namedValues.find(name);
+	auto* offset = index->codegen();
+	if (found == cgContext.namedValues.end() || !offset) return nullptr;
+	auto* type = llvm::Type::getInt64Ty(*cgContext.context);
+	auto* element = cgContext.builder->CreateGEP(type, found->second, offset, "arrayidx");
+	return cgContext.builder->CreateLoad(type, element, "arrayload");
 }
 
 // Lower integer arithmetic while preserving EdgeFlow's signed 64-bit values.
