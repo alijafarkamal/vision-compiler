@@ -184,7 +184,7 @@ llvm::Value* ProgramAST::codegen() {
 	cgContext.builder->SetInsertPoint(entry);
 	for (auto& statement : statements)
 		if (!dynamic_cast<FunctionAST*>(statement.get()) && !statement->codegen()) return nullptr;
-	if (!entry->getTerminator()) cgContext.builder->CreateRet(llvm::ConstantInt::get(llvm::Type::getInt32Ty(*cgContext.context), 0));
+	if (!cgContext.builder->GetInsertBlock()->getTerminator()) cgContext.builder->CreateRet(llvm::ConstantInt::get(llvm::Type::getInt32Ty(*cgContext.context), 0));
 	return function;
 }
 
