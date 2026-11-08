@@ -13,4 +13,5 @@ vis
 *.onnx
 *.o
 *.a
+*.zip
 Gmail*.pdf
