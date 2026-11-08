@@ -1,7 +1,7 @@
 # EdgeFlow Programming Language & Compiler
 
 **Course:** Compiler Construction (CS / FAST-NUCES)  
-**Instructor:** Faisal Aslam  
+**Instructor:** Dr. Faisal Aslam  
 **Project:** EdgeFlow — Phase 1 (Interpreter) & Phase 2 (AOT Compiler)  
 **Target Environment:** Linux (Ubuntu 22.04 / 24.04 LTS, Debian, x86_64)
 
