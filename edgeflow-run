@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# EdgeFlow One-Step AOT Compiler & Runner
+# Usage:
+#   ./edgeflow-run <source.edge> [clang-flags...]
+# Example:
+#   ./edgeflow-run examples/insertion_sort.edge
+# ==============================================================================
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BUILD_DIR="$SCRIPT_DIR/build"
+COMPILER="$BUILD_DIR/edgeflow"
+
+if [ $# -lt 1 ]; then
+    echo "Usage: $0 <source.edge> [clang-flags...]"
+    echo "Example: $0 examples/insertion_sort.edge"
+    exit 1
+fi
+
+SOURCE_FILE="$1"
+shift
+
+if [ ! -f "$SOURCE_FILE" ]; then
+    echo "Error: Source file '$SOURCE_FILE' not found."
+    exit 1
+fi
+
+if [ ! -f "$COMPILER" ]; then
+    echo "Compiler '$COMPILER' not found. Building now..."
+    cmake -S "$SCRIPT_DIR" -B "$BUILD_DIR" -G Ninja
+    cmake --build "$BUILD_DIR"
+fi
+
+BASENAME="$(basename "$SOURCE_FILE" .edge)"
+LL_FILE="/tmp/${BASENAME}_$$.ll"
+BIN_FILE="/tmp/${BASENAME}_$$"
+
+# 1. Compile EdgeFlow source to LLVM IR (.ll)
+"$COMPILER" "$SOURCE_FILE" -o "$LL_FILE"
+
+# 2. Ahead-Of-Time compile LLVM IR to native binary via Clang
+OPENCV_LIBS=$(pkg-config --libs opencv4 2>/dev/null || echo "-lopencv_core -lopencv_imgproc -lopencv_imgcodecs")
+clang++ "$LL_FILE" -o "$BIN_FILE" -L"$BUILD_DIR" -ledgeruntime $OPENCV_LIBS "$@" 2>/dev/null || \
+clang++ "$LL_FILE" -o "$BIN_FILE" -L"$BUILD_DIR" -ledgeruntime $OPENCV_LIBS "$@"
+
+# 3. Execute the native binary
+"$BIN_FILE"
+
+# Clean up temporary artifacts
+rm -f "$LL_FILE" "$BIN_FILE"

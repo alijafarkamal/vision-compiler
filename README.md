@@ -1,51 +1,46 @@
 # EdgeFlow Programming Language & Compiler
 
 **Course:** Compiler Construction (CS / FAST-NUCES)  
-**Project:** EdgeFlow — A Vision-Native Programming Language, Interpreter (Phase 1) & LLVM AOT Compiler (Phase 2)
+**Instructor:** Faisal Aslam  
+**Project:** EdgeFlow — Phase 1 (Interpreter) & Phase 2 (AOT Compiler)  
+**Target Environment:** Linux (Ubuntu 22.04 / 24.04 LTS, Debian, x86_64)
 
 ---
 
-## 1. Project Overview
+## 1. Executive Summary & Project Requirements Checklist
 
-**EdgeFlow** is a domain-specific programming language designed to unify general-purpose algorithmic programming with computer-vision workflows. The project is structured into two self-contained phases:
+This repository contains the complete implementation of the **EdgeFlow** compiler construction project, satisfying all requirements for both Phase 1 and Phase 2.
 
-1. **Phase 1: Pure Interpreter (60% Marks)**
-   - Developed using **FLEX and Bison only**.
-   - **No intermediate code** and **no LLVM** are involved.
-   - The interpreter executes the program directly using C++ semantic actions inside the Bison grammar file (`interpreter/interpreter.y`).
-   - Self-contained, lightweight binary: `edgeflow-interp`.
-
-2. **Phase 2: Ahead-Of-Time (AOT) LLVM Compiler (40% Marks)**
-   - Full compiler front-end (Flex + Bison) producing a typed Abstract Syntax Tree (AST).
-   - AST-level semantic analysis (type checking, scope resolution, diagnostics).
-   - AST-level peephole and dead-code optimizations.
-   - Lowers directly into **LLVM Intermediate Representation (`.ll`)**.
-   - Ahead-Of-Time compiled via Clang and linked against an OpenCV C++ runtime (`libedgeruntime.a`) into standalone native executables: `edgeflow`.
+| Phase | Requirement | Weight | Status | Technical Implementation |
+|---|---|---|---|---|
+| **Phase 1** | **Interpreter Development** | **60%** | **Completed (5/5 Tests Pass)** | Built using **Flex & Bison only**. No intermediate code or LLVM IR is generated. Execution occurs directly inside Bison grammar actions via C++ runtime structures (`std::map`, vectors, exception signals). Binary: `edgeflow-interp`. |
+| **Phase 2** | **AOT Compiler Development** | **40%** | **Completed (5/5 Tests Pass)** | Flex lexer + Bison parser emit typed AST, perform semantic analysis and optimizations, then lower to **LLVM Intermediate Representation (`.ll`)** using LLVM 18 C++ API. Clang compiles the IR into standalone Linux native binaries linked against OpenCV runtime (`libedgeruntime.a`). Binary: `edgeflow`. |
+| **Docs** | **README.pdf & Guides** | **Mandatory** | **Completed** | Full Linux build, run, dependency, and usage instructions with code examples and complete file inventory. |
 
 ---
 
-## 2. Compiler & Interpreter Architecture
+## 2. Architecture Overview
 
 ```mermaid
 graph TD
-    subgraph "Phase 1: Pure Interpreter (Flex + Bison only)"
-        P1_SRC[Source Code .edge] --> P1_FLEX[Lexer: lexer_interp.l]
-        P1_FLEX --> P1_BISON[Parser: interpreter.y]
-        P1_BISON --> P1_EXEC[C++ Grammar Action Execution]
-        P1_EXEC --> P1_OUT[Program Output / stdout]
+    subgraph "Phase 1: Pure Interpreter (Flex + Bison only — 60%)"
+        P1_SRC[Source Code .edge] --> P1_FLEX[Flex Scanner: lexer_interp.l]
+        P1_FLEX --> P1_BISON[Bison Parser: interpreter.y]
+        P1_BISON --> P1_EXEC[Direct C++ Semantic Action Execution]
+        P1_EXEC --> P1_OUT[stdout Output]
     end
 
-    subgraph "Phase 2: AOT Compiler (LLVM + OpenCV)"
-        P2_SRC[Source Code .edge] --> P2_FLEX[Lexer: lexer.l]
-        P2_FLEX --> P2_BISON[Parser: parser.y]
-        P2_BISON --> P2_AST[Abstract Syntax Tree]
-        P2_AST --> P2_SEM[Semantic Analysis]
-        P2_SEM --> P2_OPT[AST Optimizations DCE & Redundancy]
-        P2_OPT --> P2_LLVM[LLVM IR CodeGen: CodeGen.cpp]
+    subgraph "Phase 2: Ahead-Of-Time Compiler (LLVM + Clang — 40%)"
+        P2_SRC[Source Code .edge] --> P2_FLEX[Flex Scanner: lexer.l]
+        P2_FLEX --> P2_BISON[Bison Parser: parser.y]
+        P2_BISON --> P2_AST[Abstract Syntax Tree AST.h]
+        P2_AST --> P2_SEM[Semantic Analysis Semantic.cpp]
+        P2_SEM --> P2_OPT[AST Optimizations DCE & Dead Branches]
+        P2_OPT --> P2_LLVM[LLVM IR Code Generation codegen.cpp]
         P2_LLVM --> P2_IR[LLVM IR .ll]
-        P2_IR --> P2_CLANG[Clang AOT Linker]
-        P2_RT[OpenCV Vision Runtime C++] --> P2_CLANG
-        P2_CLANG --> P2_BIN[Native Binary Executable]
+        P2_IR --> P2_CLANG[Clang AOT Compiler / Linker]
+        P2_RT[OpenCV Vision Runtime libedgeruntime.a] --> P2_CLANG
+        P2_CLANG --> P2_BIN[Native Linux Executable ELF]
     end
 ```
 
@@ -56,122 +51,248 @@ graph TD
 ```
 vision-compiler/
 ├── CMakeLists.txt              # Unified CMake build configuration (Phase 1 & Phase 2)
-├── README.md                   # Complete documentation and usage guide
-├── DEVELOPMENT.md              # Milestones and development logs
-├── EdgeFlow_Compiler_Project_Proposal.pdf # Course project proposal
+├── README.md                   # Comprehensive Markdown documentation
+├── README.pdf                  # Submission PDF documentation for grading
+├── DEVELOPMENT.md              # Milestone tracking and development log
+├── EdgeFlow_Compiler_Project_Proposal.pdf # Initial project proposal
+├── edgeflow-run                # One-step script to compile and run EdgeFlow programs
 │
-├── interpreter/                # === Phase 1: Pure Interpreter ===
-│   ├── interpreter.y           # Bison grammar with direct C++ execution logic
-│   ├── lexer_interp.l          # Dedicated Flex lexer for Phase 1
-│   └── main_interp.cpp         # Main entry point calling yyparse()
+├── interpreter/                # === Phase 1: Pure Interpreter (60%) ===
+│   ├── interpreter.y           # Bison grammar with direct C++ in-memory execution
+│   ├── lexer_interp.l          # Pure Flex lexical scanner for interpreter
+│   └── main_interp.cpp         # Phase 1 CLI driver (supports file argument and stdin)
 │
 ├── lexer/                      # === Phase 2: Compiler Lexer ===
-│   └── lexer.l                 # Flex lexical scanner for AOT compiler
+│   └── lexer.l                 # Flex lexical scanner creating tokens for AST parser
 │
 ├── parser/                     # === Phase 2: Compiler Parser ===
-│   └── parser.y                # Bison parser creating typed AST nodes
+│   └── parser.y                # Bison parser constructing typed AST nodes
 │
 ├── include/                    # === Phase 2: Header Files ===
-│   ├── AST.h                   # Abstract Syntax Tree classes & visitor interfaces
-│   ├── CodeGen.h               # LLVM IR code generator declaration
+│   ├── AST.h                   # Typed AST class hierarchy and visitor interfaces
+│   ├── CodeGen.h               # LLVM IR code generator context declaration
 │   └── Semantic.h              # Semantic analyzer and diagnostic rules
 │
 ├── src/                        # === Phase 2: Compiler Implementation ===
-│   ├── main.cpp                # Compiler CLI driver (--ast, -o, etc.)
-│   ├── AST.cpp                 # AST implementation & optimization passes
-│   ├── CodeGen.cpp             # LLVM IR emission using LLVM C++ API
-│   └── Semantic.cpp            # Scope checking and semantic diagnostics
+│   ├── main.cpp                # Compiler driver CLI (--ast, -o <file.ll>)
+│   ├── ast.cpp                 # AST printing and dead-code optimization passes
+│   ├── codegen.cpp             # LLVM IR emission using LLVM 18 C++ API
+│   └── Semantic.cpp            # Symbol table, type checking, and diagnostic reporter
 │
 ├── runtime/                    # === Phase 2: Vision Runtime ===
-│   └── vision_runtime.cpp      # OpenCV C++ runtime (image ops, camera, YOLO AI)
+│   └── vision_runtime.cpp      # C++ OpenCV runtime library (image ops, camera, YOLO)
 │
 ├── examples/                   # === Test & Demonstration Programs ===
-│   ├── basic.edge              # Arithmetic, precedence, expressions
-│   ├── control_flow.edge       # choose/otherwise, while loop, range loop
-│   ├── functions.edge          # Functions, parameter passing, recursion (factorial)
-│   ├── arrays.edge             # Array declarations, updates, indexing
-│   ├── insertion_sort.edge     # Required sorting algorithm demonstration
-│   ├── semantic_test.edge      # Semantic diagnostic test cases
-│   ├── optimize.edge           # Dead code and redundant call optimization demo
-│   ├── vision.edge             # Computer vision pipeline (load, resize, blur, save)
+│   ├── basic.edge              # Arithmetic, operator precedence, expressions
+│   ├── control_flow.edge       # choose / otherwise conditionals, while and range loops
+│   ├── functions.edge          # User-defined functions and recursive factorial
+│   ├── arrays.edge             # Array declarations, updates, and indexing
+│   ├── insertion_sort.edge     # Course-required sorting algorithm demonstration
+│   ├── semantic_test.edge      # Semantic diagnostic test cases (triggers compiler errors)
+│   ├── optimize.edge           # AST dead branch elimination demonstration
+│   ├── vision.edge             # Image processing pipeline (load, resize, blur, save)
 │   ├── camera.edge             # Real-time camera capture loop
-│   └── ai.edge                 # ONNX YOLO deep learning object detection
+│   ├── ai.edge                 # ONNX YOLO deep learning object detection
+│   └── lexer_test.edge         # Basic lexical token validation program
 │
-└── tests/
-    └── run_phase1_tests.sh     # Automated automated regression test suite for Phase 1
+└── tests/                      # === Automated Regression Test Suites ===
+    ├── run_phase1_tests.sh     # Automated test suite for Phase 1 (5 tests)
+    ├── run_phase2_tests.sh     # Automated test suite for Phase 2 (5 tests)
+    └── run_all_tests.sh        # Master runner for all Phase 1 & 2 tests
 ```
+
+### Detailed Component Description
+
+| Path | Purpose & Implementation Details |
+|---|---|
+| `interpreter/interpreter.y` | Pure Bison grammar for Phase 1. Defines execution semantics in C++ action blocks (`evalExpr`, `execStmt`, `execBlock`). Uses `std::map<std::string, Value>` for variables, `std::vector<Value>` for arrays, and C++ exception unwinding (`ReturnSignal`) for function returns. **Zero LLVM IR or bytecode generated.** |
+| `interpreter/lexer_interp.l` | Flex scanner for Phase 1. Tokenizes keywords (`make`, `choose`, `otherwise`, `repeat`, `task`, `give`, `emit`), literals, identifiers, and comments. |
+| `interpreter/main_interp.cpp` | Phase 1 entry point. Sets `yyin` to source file or `stdin` and invokes `yyparse()`. |
+| `lexer/lexer.l` | Flex scanner for Phase 2. Produces semantic value tokens for the AST builder. |
+| `parser/parser.y` | Bison grammar for Phase 2. Builds typed `ExprAST` and `StmtAST` nodes and populates `rootNode`. |
+| `src/ast.cpp` | AST methods including formatted tree printing (`--ast`) and static dead-code elimination. |
+| `src/codegen.cpp` | Lowers AST nodes to LLVM 18 IR. Emits allocas, SSA loads/stores, basic blocks, conditional branches, function signatures, `printf` calls for `emit`, and links extern C runtime stubs. |
+| `src/Semantic.cpp` | Pre-codegen semantic verification. Checks for undeclared variables, duplicate variables, arity mismatches, and misuse of arrays as scalars. |
+| `runtime/vision_runtime.cpp` | Native C++ runtime wrapping OpenCV for computer vision tasks: `edge_load_image`, `edge_resize`, `edge_grayscale`, `edge_blur`, `edge_save`, camera, and YOLO. |
+| `edgeflow-run` | Automated one-step compilation and execution script for Phase 2. Compiles `.edge` to `.ll`, invokes `clang++`, links `libedgeruntime.a`, and runs the resulting executable. |
 
 ---
 
-## 4. Dependencies & Prerequisites
+## 4. Installing Required Dependencies (Linux)
 
-### Linux (Ubuntu 22.04 / 24.04 / Debian)
+The project is built and tested on **Ubuntu Linux (22.04 / 24.04 LTS)**.
+
+### Step 1: Install Core Build Tools & Phase 1 Dependencies
 ```bash
-# Core prerequisites for Phase 1 (Flex & Bison Interpreter):
 sudo apt-get update
 sudo apt-get install -y cmake ninja-build flex bison build-essential
-
-# Optional prerequisites for Phase 2 (LLVM AOT Compiler & Vision Runtime):
-sudo apt-get install -y llvm-18 clang-18 libopencv-dev
 ```
 
-### Windows (WSL recommended)
-For best results matching the grading environment, build inside WSL (Ubuntu):
+### Step 2: Install Phase 2 Dependencies (LLVM 18, Clang, OpenCV)
 ```bash
-wsl
-cd /mnt/d/FAST/7th\ semester/CC/vision-compiler
+sudo apt-get install -y llvm-18 llvm-18-dev clang-18 libopencv-dev pkg-config
+```
+
+### Step 3: Verify Toolchain Installation
+```bash
+flex --version          # e.g., flex 2.6.4
+bison --version         # e.g., bison 3.8.2
+cmake --version         # e.g., cmake 3.22 or newer
+clang++ --version       # e.g., clang version 18.1.3
+llvm-config --version   # e.g., 18.1.3
+pkg-config --modversion opencv4 # e.g., 4.5.4 or 4.6.0
+```
+
+> [!NOTE]
+> Phase 1 (`edgeflow-interp`) has **zero dependency on LLVM or OpenCV**. If LLVM is not present on the target system, CMake automatically configures and builds Phase 1 without errors.
+
+---
+
+## 5. Compiling the Project
+
+From the project root directory:
+
+```bash
+# Configure the build directory using Ninja
+cmake -S . -B build -G Ninja
+
+# Build all targets (Phase 1 Interpreter + Phase 2 AOT Compiler + Runtime)
+cmake --build build
+```
+
+Alternatively, to build each phase target independently:
+
+```bash
+# Build Phase 1 Interpreter only:
+cmake --build build --target edgeflow-interp
+
+# Build Phase 2 AOT Compiler only:
+cmake --build build --target edgeflow edgeruntime
+```
+
+This generates:
+- `build/edgeflow-interp` — Pure Flex + Bison Interpreter binary
+- `build/edgeflow` — AOT LLVM IR Compiler binary
+- `build/libedgeruntime.a` — Native OpenCV runtime static library
+
+---
+
+## 6. Running the Program
+
+### Running Phase 1: Pure Interpreter
+
+Execute any `.edge` source file directly with the interpreter:
+
+```bash
+# Run Insertion Sort demo
+./build/edgeflow-interp examples/insertion_sort.edge
+
+# Run Recursive Functions demo
+./build/edgeflow-interp examples/functions.edge
+
+# Run Control Flow demo
+./build/edgeflow-interp examples/control_flow.edge
+
+# Run Basic Arithmetic demo
+./build/edgeflow-interp examples/basic.edge
+
+# Run Arrays demo
+./build/edgeflow-interp examples/arrays.edge
+```
+
+#### Interactive REPL / Standard Input Mode
+You can also run EdgeFlow statements interactively or stream them via `stdin`:
+```bash
+./build/edgeflow-interp
+make x := 10;
+make y := 25;
+emit (x + y) * 2;
+# Press Ctrl+D to execute
+# Output: 70
 ```
 
 ---
 
-## 5. Phase 1: Pure Interpreter (Flex + Bison)
+### Running Phase 2: AOT Compiler
 
-### How It Works
-Phase 1 satisfies 60% of the course requirements. The grammar actions directly interpret and execute EdgeFlow statements:
-- **Environment Management:** Scalar variables are maintained in `std::map<std::string, long long>`, and arrays are stored in `std::map<std::string, std::vector<long long>>`.
-- **Function Dispatch & Recursion:** Functions (`task`) are registered in a function table with their AST bodies and parameter lists. Calling a function creates a fresh local environment, binds arguments, and handles `give` statements via C++ exception signaling (`ReturnSignal`).
-- **No LLVM or external libraries:** Zero LLVM or OpenCV dependency is required to build or execute Phase 1.
-
-### Compiling Phase 1
-From the project root:
+#### Method A: Convenient One-Step Runner (`./edgeflow-run`)
+To compile and execute an EdgeFlow program with a single command:
 ```bash
-cmake -S . -B build -G Ninja
-cmake --build build --target edgeflow-interp
+./edgeflow-run examples/insertion_sort.edge
+```
+Output:
+```
+Successfully generated /tmp/insertion_sort_28367.ll
+1
+3
+5
+7
+8
 ```
 
-### Running Phase 1 Programs
-Execute any `.edge` program directly:
+#### Method B: Manual Two-Step AOT Compilation
+To inspect the LLVM IR and manually build the native executable:
+
 ```bash
-# Basic arithmetic:
-./build/edgeflow-interp examples/basic.edge
+# Step 1: Lower EdgeFlow to LLVM Intermediate Representation (.ll)
+./build/edgeflow examples/insertion_sort.edge -o /tmp/sort.ll
 
-# Control flow & loops:
-./build/edgeflow-interp examples/control_flow.edge
+# (Optional) Verify LLVM IR validity with the LLVM assembler
+llvm-as /tmp/sort.ll -o /dev/null
 
-# Recursive functions:
-./build/edgeflow-interp examples/functions.edge
+# Step 2: Compile LLVM IR to native Linux ELF executable using Clang
+clang++ /tmp/sort.ll -o /tmp/sort_bin -Lbuild -ledgeruntime $(pkg-config --libs opencv4 2>/dev/null)
 
-# Array operations:
-./build/edgeflow-interp examples/arrays.edge
-
-# Insertion Sort:
-./build/edgeflow-interp examples/insertion_sort.edge
+# Step 3: Run the native Linux binary
+/tmp/sort_bin
 ```
 
-You can also run EdgeFlow code interactively from standard input:
+#### Method C: AST Visualizer Flag (`--ast`)
+To inspect the Abstract Syntax Tree generated by the parser:
 ```bash
-./build/edgeflow-interp
-make x := 42;
-emit x * 2;
-# Press Ctrl+D (Linux) or Ctrl+Z (Windows)
+./build/edgeflow --ast examples/basic.edge
+```
+Output:
+```
+Program
+  VarDecl(a)
+    NumberExpr(10)
+  VarDecl(b)
+    NumberExpr(20)
+  VarDecl(c)
+    BinaryExpr(+)
+      VariableExpr(a)
+      BinaryExpr(*)
+        VariableExpr(b)
+        NumberExpr(2)
+  Emit
+    VariableExpr(c)
+  Emit
+    BinaryExpr(and)
+      BinaryExpr(>)
+        VariableExpr(c)
+        NumberExpr(30)
+      BinaryExpr(==)
+        VariableExpr(a)
+        NumberExpr(10)
 ```
 
-### Automated Phase 1 Test Suite
-Run the automated test runner to verify all Phase 1 test cases:
+---
+
+## 7. Automated Test Suites & Verification
+
+The project includes automated regression test suites verifying arithmetic, control flow, functions, recursion, arrays, and sorting.
+
+### Run All Tests (Phase 1 & Phase 2)
+```bash
+bash tests/run_all_tests.sh
+```
+
+### Run Phase 1 Test Suite (Interpreter)
 ```bash
 bash tests/run_phase1_tests.sh
 ```
-Expected output:
+Output:
 ```
 [PASS] basic_arithmetic
 [PASS] control_flow
@@ -184,92 +305,75 @@ Expected output:
 =======================================
 ```
 
----
-
-## 6. Phase 2: AOT LLVM Compiler & Vision Runtime
-
-### How It Works
-Phase 2 translates EdgeFlow into optimized LLVM Intermediate Representation (`.ll`), which is then compiled to native machine code via Clang:
-1. `lexer/lexer.l` & `parser/parser.y` produce an Abstract Syntax Tree.
-2. `src/Semantic.cpp` performs type checking, scope verification, and error diagnostics.
-3. `src/AST.cpp` executes AST-level optimizations:
-   - **Dead Code Elimination (DCE):** Eliminates statically dead conditional branches.
-   - **Redundant Vision Optimization:** Removes consecutive duplicate resize/grayscale operations.
-4. `src/CodeGen.cpp` lowers AST nodes to LLVM IR using the LLVM 18 C++ API.
-5. Clang compiles the IR and links it with `runtime/vision_runtime.cpp` (OpenCV).
-
-### Compiling Phase 2
+### Run Phase 2 Test Suite (AOT Compiler)
 ```bash
-cmake -S . -B build -G Ninja
-cmake --build build
+bash tests/run_phase2_tests.sh
 ```
-This produces the compiler binary: `build/edgeflow` and the runtime library `build/libedgeruntime.a`.
-
-### Running Phase 2 Programs
-```bash
-# Step 1: Compile .edge to LLVM IR
-./build/edgeflow examples/insertion_sort.edge -o sort.ll
-
-# Step 2: Compile LLVM IR to native binary via Clang
-clang++ sort.ll -o sort_bin -Lbuild -ledgeruntime $(pkg-config --libs opencv4 2>/dev/null)
-
-# Step 3: Run the native binary
-./sort_bin
+Output:
 ```
+=== Running Phase 2 AOT Compiler Tests ===
+Successfully generated /tmp/basic_arithmetic.ll
+[PASS] basic_arithmetic
+Successfully generated /tmp/control_flow.ll
+[PASS] control_flow
+Successfully generated /tmp/functions_recursion.ll
+[PASS] functions_recursion
+Successfully generated /tmp/arrays.ll
+[PASS] arrays
+Successfully generated /tmp/insertion_sort.ll
+[PASS] insertion_sort
 
-### Compiling & Running Computer Vision Pipelines
-```bash
-# Vision pipeline example (loading, processing, saving image)
-./build/edgeflow examples/vision.edge -o vision.ll
-clang++ vision.ll -o vision_bin -Lbuild -ledgeruntime $(pkg-config --libs opencv4)
-./vision_bin
+=======================================
+  5/5 Phase 2 tests passed
+=======================================
 ```
 
 ---
 
-## 7. EdgeFlow Language Reference & Syntax Examples
+## 8. EdgeFlow Language Reference & Examples
 
-### Variable Declaration & Assignment
+### 1. Variables & Expressions (`examples/basic.edge`)
 ```edge
 make a := 10;
 make b := 20;
 make c := a + b * 2;
-emit c;             // Output: 50
-```
+emit c;
 
-### Arrays
-```edge
-make arr[5] := [8, 3, 7, 1, 5];
-arr[0] := 10;
-emit arr[0];        // Output: 10
+make valid := (c > 30) and (a == 10);
+emit valid;
 ```
+- **Phase 1 Output:** `50`, `1`
+- **Phase 2 Output:** `50`, `1`
 
-### Control Flow (If / Else)
+---
+
+### 2. Control Flow & Loops (`examples/control_flow.edge`)
 ```edge
-make score := 85;
+make score := 75;
 choose score >= 50 {
-    emit 1;         // Pass
+    emit 1;
 } otherwise {
-    emit 0;         // Fail
+    emit 0;
 }
-```
 
-### Loops
-```edge
-// While loop:
 make count := 5;
 repeat while count > 0 {
     emit count;
     count := count - 1;
 }
 
-// Range loop:
 repeat i from 0 until 5 {
-    emit i;         // Prints 0, 1, 2, 3, 4
+    emit i;
 }
 ```
+- **Output:**
+  `1` (conditional passed)  
+  `5, 4, 3, 2, 1` (while loop)  
+  `0, 1, 2, 3, 4` (exclusive range loop)
 
-### Functions & Recursion
+---
+
+### 3. Functions & Recursion (`examples/functions.edge`)
 ```edge
 task add(x, y) {
     give x + y;
@@ -283,15 +387,43 @@ task factorial(n) {
     }
 }
 
-make res := factorial(5);
-emit res;           // Output: 120
-```
+make sum := add(5, 10);
+emit sum;
 
-### Algorithm Demonstration: Insertion Sort (`examples/insertion_sort.edge`)
+make fact := factorial(5);
+emit fact;
+```
+- **Output:**
+  `15`  
+  `120`
+
+---
+
+### 4. Arrays & Indexing (`examples/arrays.edge`)
+```edge
+make arr[3] := [10, 20, 30];
+arr[1] := 99;
+emit arr[1];
+
+make sz := size(arr);
+arr[sz] := 5;
+emit arr[sz];
+```
+- **Output:**
+  `99`  
+  `5`
+
+---
+
+### 5. Required Algorithm: Insertion Sort (`examples/insertion_sort.edge`)
+The course requires implementing and compiling a sorting algorithm. `examples/insertion_sort.edge` implements the full Insertion Sort in EdgeFlow:
 ```edge
 task is_greater(a, b) {
-    choose a > b { give 1; }
-    otherwise { give 0; }
+    choose a > b {
+        give 1;
+    } otherwise {
+        give 0;
+    }
 }
 
 make arr[5] := [8, 3, 7, 1, 5];
@@ -328,26 +460,72 @@ repeat i from 1 until 5 {
 }
 
 repeat i from 0 until 5 {
-    emit arr[i];    // Prints sorted array: 1, 3, 5, 7, 8
+    emit arr[i];
 }
+```
+- **Expected Sorted Output:**
+  ```
+  1
+  3
+  5
+  7
+  8
+  ```
+
+---
+
+### 6. Semantic Error Diagnostics (`examples/semantic_test.edge`)
+The compiler includes a strict semantic verification pass (`src/Semantic.cpp`) that detects compile-time errors:
+```bash
+./build/edgeflow examples/semantic_test.edge
+```
+Output:
+```
+EdgeFlow semantic error [line 2]: duplicate declaration of variable `a`
+EdgeFlow semantic error [line 4]: variable `score` is not defined
+EdgeFlow semantic error [line 7]: array `arr` misused as scalar
+EdgeFlow semantic error [line 11]: function `undefined_func` is not defined
+Semantic analysis failed.
 ```
 
 ---
 
-## 8. Summary of Achievements
+### 7. AST Optimization: Dead Branch Elimination (`examples/optimize.edge`)
+EdgeFlow performs static branch pruning during AST optimization:
+```edge
+make a := 10;
+choose 0 {
+    a := 999;
+} otherwise {
+    a := 20;
+}
+emit a;
+```
+Compiling with `edgeflow` detects that condition `0` is statically false, prunes the dead `then` branch, and retains only `a := 20;`.
+- **Output:** `20`
 
-| Requirement | Phase | Status | Notes |
-|---|---|---|---|
-| Flex Lexer | Phase 1 & 2 | Completed | Dedicated lexer for Phase 1; tokenizes all language features |
-| Bison Grammar | Phase 1 & 2 | Completed | Phase 1 evaluates in C++; Phase 2 builds typed AST |
-| Pure Interpreter | Phase 1 | Completed | Zero LLVM/IR dependency; maps, vectors, dynamic execution |
-| Arithmetic & Logic | Phase 1 & 2 | Completed | Precedence, comparisons, short-circuit `and`/`or` |
-| Control Flow | Phase 1 & 2 | Completed | `choose ... otherwise`, `repeat while`, `repeat i from ... until` |
-| Functions & Recursion | Phase 1 & 2 | Completed | Scoped activation frames, recursive factorial demo |
-| Arrays & Indexing | Phase 1 & 2 | Completed | Dynamic bounds-checked indexing and updates |
-| Algorithm Demo | Phase 1 & 2 | Completed | Insertion sort verified producing `1, 3, 5, 7, 8` |
-| Semantic Diagnostics | Phase 2 | Completed | Type checks, duplicate declarations, line-number reports |
-| AST Optimizations | Phase 2 | Completed | Dead code pruning and redundant vision operation DCE |
-| LLVM IR Code Generation | Phase 2 | Completed | Emits clean, verifiable `.ll` code |
-| OpenCV Vision Runtime | Phase 2 | Completed | Real-time image processing, camera capture, ONNX YOLO |
-| Documentation & Test Suite | Phase 1 & 2 | Completed | Automated test script (`run_phase1_tests.sh`) & complete README |
+---
+
+### 8. Computer Vision Pipeline (`examples/vision.edge`)
+Phase 2 includes an OpenCV C++ runtime library (`runtime/vision_runtime.cpp`) supporting image operations:
+```edge
+make img := load_image("image.jpg");
+make rsz := resize(img, 300, 300);
+make gray := grayscale(rsz);
+make blr := blur(gray, 5);
+save(blr, "result.jpg");
+```
+When compiled with `edgeflow`, function calls map directly to OpenCV runtime routines (`edge_load_image`, `edge_resize`, `edge_grayscale`, `edge_blur`, `edge_save`).
+
+---
+
+## 9. Troubleshooting & FAQ
+
+1. **Error: `undefined variable` or `Basic Block does not have terminator`**  
+   Ensure you have pulled the latest merged fixes from `main`. All control flow merge and exit blocks in `src/codegen.cpp` properly terminate the active insertion block.
+
+2. **Can Phase 1 run on machines without LLVM or OpenCV?**  
+   **Yes.** Run `cmake --build build --target edgeflow-interp`. Phase 1 only requires `flex`, `bison`, and standard `g++`/`clang++`.
+
+3. **How does Phase 1 satisfy the project requirement of "FLEX and Bison only"?**  
+   The grammar file `interpreter/interpreter.y` contains direct C++ evaluation logic inside semantic actions. It does not invoke LLVM, generate bytecode, or construct an external intermediate file.
